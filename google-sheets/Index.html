@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<style>
+  :root { --bg:#f4f6f8; --surface:#fff; --sunken:#eef1f4; --line:#d9dfe5; --ink:#15212e; --muted:#5b6876; --accent:#0b5f8a; --accent-soft:#e2eef5;
+          --ok:#1d7a46; --ok-soft:#e1f2e8; --warn:#9a6b00; --warn-soft:#fbf0d2; --bad:#b3261e; --bad-soft:#f9dedc; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 Arial, Helvetica, sans-serif; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 20px 16px 60px; display: flex; flex-direction: column; gap: 16px; }
+  header.top { background: var(--surface); border-bottom: 1px solid var(--line); }
+  header.top .in { max-width: 1100px; margin: 0 auto; padding: 12px 16px; display: flex; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; align-items: baseline; }
+  h1 { font-size: 20px; margin: 0; } h2 { font-size: 16px; margin: 0 0 10px; } h3 { font-size: 14px; margin: 0; }
+  .muted { color: var(--muted); } .small { font-size: 12.5px; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+  .alert { border-radius: 8px; padding: 12px 14px; border: 1px solid; }
+  .alert.warn { background: var(--warn-soft); border-color: #e6cf8f; } .alert.bad { background: var(--bad-soft); border-color: #eab3ae; } .alert.ok { background: var(--ok-soft); border-color: #a9d8bb; }
+  .alert ul, ul.notes { margin: 6px 0 0; padding-left: 18px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
+  input, select { font: inherit; color: var(--ink); background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; width: 100%; min-width: 0; }
+  input.bad { border-color: var(--bad); background: var(--bad-soft); }
+  input[type=checkbox] { width: auto; }
+  .route { border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+  .route-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+  .allin { font-size: 13px; } .allin b { font-variant-numeric: tabular-nums; }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .tab { font: inherit; font-size: 13px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: #fff; cursor: pointer; }
+  .tab[aria-pressed=true] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .tab.missing { border-color: var(--bad); }
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; } th, td { padding: 7px 9px; border-bottom: 1px solid var(--line); text-align: left; }
+  th { background: var(--sunken); font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); white-space: nowrap; }
+  td input, td select { padding: 5px 7px; }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 16px; align-items: start; }
+  aside { position: sticky; top: 12px; }
+  @media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } aside { position: static; } }
+  .btn { font: inherit; font-weight: 700; border-radius: 6px; padding: 10px 16px; border: 1px solid var(--line); background: #fff; cursor: pointer; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; width: 100%; }
+  .btn:disabled { opacity: .55; cursor: wait; }
+  .btn:focus-visible, input:focus-visible, select:focus-visible, .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .check li { margin-bottom: 4px; } .done { color: var(--ok); font-weight: 700; }
+  .origin { border-color: #e6cf8f; }
+  .badge { font-size: 11.5px; font-weight: 700; background: var(--warn-soft); color: var(--warn); border-radius: 999px; padding: 2px 8px; margin-left: 6px; }
+</style>
+</head>
+<body>
+<header class="top"><div class="in"><h1>Tarifario aéreo BIDCOM</h1><span class="muted" id="who"></span></div></header>
+<div class="wrap" id="app"></div>
+
+<script>
+var D = <?!= datos ?>;
+var CLAVE = '<?!= clave ?>';
+var S = D.solicitud, form = nuevoFormulario(), tab = S.rutas.length ? S.rutas[0].origen : '', enviando = false, resultado = null;
+
+function nuevoFormulario() {
+  var base = D.ultimo, f = { rutas: [], gastos: {} };
+  S.rutas.forEach(function (r) {
+    var prev = base ? base.rutas.filter(function (x) { return x.origen === r.origen; })[0] : null;
+    f.rutas.push(prev ? { origen: r.origen, destino: r.destino, aerolinea: prev.aerolinea, transito: prev.transito, minimo: prev.minimo, tarifas: copia(prev.tarifas),
+      fuel: prev.fuel, imo: prev.imo, imoPedido: prev.imoPedido, destino_usd: prev.destino_usd, vigencia: S.hasta, obs: prev.obs }
+      : { origen: r.origen, destino: r.destino, aerolinea: '', transito: '', minimo: '', tarifas: {}, fuel: '', imo: '', imoPedido: false, destino_usd: '', vigencia: S.hasta, obs: '' });
+    var g = base && base.gastos[r.origen];
+    f.gastos[r.origen] = g ? g.map(function (c) { return { concepto: c.concepto, importe: c.importe, unidad: c.unidad || 'Fijo por embarque', minimo: c.minimo, pedido: c.pedido, descripcion: c.descripcion }; })
+      : D.conceptos.map(function (c) { return { concepto: c, importe: '', unidad: 'Fijo por embarque', minimo: '', pedido: false, descripcion: '' }; });
+  });
+  return f;
+}
+function copia(o) { return JSON.parse(JSON.stringify(o || {})); }
+function esc(s) { return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function n(v) { if (v === '' || v === null || v === undefined) return NaN; return Number(String(v).replace(',', '.')); }
+function vacio(v) { return v === '' || v === null || v === undefined; }
+function fmt(v) { return isNaN(v) ? '—' : v.toLocaleString('es-AR', { maximumFractionDigits: 2 }); }
+
+function errores() {
+  var e = [];
+  form.rutas.forEach(function (r) {
+    var p = r.origen + ': ';
+    if (!String(r.aerolinea || '').trim()) e.push(p + 'falta la aerolínea');
+    if (!(n(r.transito) > 0)) e.push(p + 'falta el tránsito');
+    if (!(n(r.minimo) > 0)) e.push(p + 'falta el mínimo');
+    [100, 300, 500, 1000].forEach(function (b) { if (!(n(r.tarifas[b]) > 0)) e.push(p + 'falta la tarifa de ' + b + ' kg'); });
+    if (isNaN(n(r.fuel))) e.push(p + 'falta el fuel');
+    if (!r.imoPedido && isNaN(n(r.imo))) e.push(p + 'falta el IMO (o marcalo a pedido)');
+    if (isNaN(n(r.destino_usd))) e.push(p + 'faltan los gastos de destino');
+    if (!r.vigencia) e.push(p + 'falta la vigencia');
+    var cargados = (form.gastos[r.origen] || []).filter(function (c) { return c.pedido || !vacio(c.importe); });
+    if (!cargados.length) e.push(p + 'faltan los gastos en origen');
+    cargados.forEach(function (c) {
+      if (c.pedido) return;
+      if (c.unidad === 'Por kg' && vacio(c.minimo)) e.push(p + c.concepto + ': falta el mínimo (cobro por kg)');
+      if (D.conceptos.indexOf(c.concepto) < 0 && !String(c.descripcion || '').trim()) e.push(p + 'concepto adicional sin descripción');
+    });
+  });
+  return e;
+}
+function allin(r) {
+  var W = S.peso, b = [1000, 500, 300, 100, 45].filter(function (x) { return x <= W; })[0] || 45;
+  var rate = n(r.tarifas[b]), min = n(r.minimo);
+  if (isNaN(rate) || isNaN(min) || isNaN(n(r.fuel)) || isNaN(n(r.destino_usd))) return NaN;
+  var origen = (form.gastos[r.origen] || []).reduce(function (s, c) {
+    if (c.pedido || vacio(c.importe)) return s;
+    return s + (c.unidad === 'Por kg' ? Math.max(n(c.minimo) || 0, n(c.importe) * W) : n(c.importe));
+  }, 0);
+  var imo = r.imoPedido ? 0 : (n(r.imo) || 0);
+  return (Math.max(min, rate * W) + (n(r.fuel) + imo) * W + origen + n(r.destino_usd)) / W;
+}
+
+function render() {
+  document.getElementById('who').textContent = D.agente;
+  if (resultado) { renderOk(); return; }
+  var notas = S.notas || [], errs = errores();
+  var html = '';
+  html += '<section class="panel"><h2>Semana ' + esc(S.semana) + '</h2><p>Período ' + esc(S.desde) + ' al ' + esc(S.hasta) + ' · respondé hasta el <b>' + esc(S.limite) + '</b>.</p>' +
+    '<p class="small muted">Es tu tarifa general de la semana para cada ruta, no la de un embarque puntual. ' + (D.ultimo ? 'Precargamos tu último envío de esta semana: revisalo y enviá la nueva versión.' : '') + '</p></section>';
+  if (notas.length) html += '<section class="panel"><h2>Lo importante</h2><div class="alert warn"><b>Gastos en origen.</b> ' + esc(notas[0]) + '</div>' +
+    (notas.length > 1 ? '<ul class="notes">' + notas.slice(1).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '') + '</section>';
+  html += '<div class="layout"><div style="display:flex;flex-direction:column;gap:16px">';
+  html += '<section class="panel"><h2>1. Tarifas por ruta</h2><div style="display:flex;flex-direction:column;gap:12px">' + form.rutas.map(rutaHTML).join('') + '</div></section>';
+  html += '<section class="panel origin"><h2>2. Gastos en origen por aeropuerto <span class="badge">Importante</span></h2>' +
+    '<p class="small muted" style="margin:0 0 10px">Un importe por concepto. Si se cobra por kg, elegí "Por kg" e indicá el mínimo. Si no tenés el valor, marcá "A pedido".</p>' +
+    '<div class="tabs">' + form.rutas.map(function (r) {
+      var falta = !(form.gastos[r.origen] || []).some(function (c) { return c.pedido || !vacio(c.importe); });
+      return '<button type="button" class="tab' + (falta ? ' missing' : '') + '" data-tab="' + esc(r.origen) + '" aria-pressed="' + (tab === r.origen) + '">' + esc(r.origen) + '</button>'; }).join('') + '</div>' +
+    gastosHTML(tab) + '</section>';
+  html += '</div><aside class="panel"><h2>Antes de enviar</h2><div id="check">' + checkHTML(errs) + '</div>' +
+    '<button class="btn primary" id="enviar" ' + (enviando ? 'disabled' : '') + '>' + (enviando ? 'Enviando…' : (D.ultimo ? 'Enviar nueva versión' : 'Enviar a BIDCOM')) + '</button>' +
+    '<p class="small muted">Si después necesitás corregir algo, volvé a entrar con tu link y enviá de nuevo: queda una nueva versión.</p></aside></div>';
+  if (D.envios.length) html += '<section class="panel"><h2>Mis envíos</h2><div class="tablewrap"><table><thead><tr><th>Semana</th><th>Versión</th><th>Enviado</th><th>Rutas</th></tr></thead><tbody>' +
+    D.envios.map(function (e) { return '<tr><td>' + esc(e.semana) + '</td><td>v' + esc(e.version) + '</td><td>' + esc(e.recibido) + '</td><td>' + esc(e.rutas) + '</td></tr>'; }).join('') + '</tbody></table></div></section>';
+  document.getElementById('app').innerHTML = html;
+  bind();
+}
+function rutaHTML(r, i) {
+  function inp(k, v, bad, step, label) { return '<input type="number" min="0" step="' + (step || '0.01') + '" data-r="' + i + '" data-k="' + k + '" value="' + esc(v) + '" class="' + (bad ? 'bad' : '') + '" aria-label="' + esc(label) + '">'; }
+  var a = allin(r);
+  return '<div class="route"><div class="route-head"><h3>' + esc(r.origen) + ' → ' + esc(r.destino) + '</h3><span class="allin" data-allin="' + i + '">' + allinTxt(a) + '</span></div>' +
+    '<div class="grid"><label>Aerolínea<input data-r="' + i + '" data-k="aerolinea" value="' + esc(r.aerolinea) + '" class="' + (String(r.aerolinea || '').trim() ? '' : 'bad') + '"></label>' +
+    '<label>Tránsito (días)' + inp('transito', r.transito, !(n(r.transito) > 0), '1', 'Tránsito') + '</label>' +
+    '<label>Moneda<input value="USD" disabled></label>' +
+    '<label>Mínimo' + inp('minimo', r.minimo, !(n(r.minimo) > 0), '0.01', 'Mínimo') + '</label></div>' +
+    '<div><div class="small muted" style="margin-bottom:4px">Tarifa USD por kg según peso</div><div class="grid">' + D.breaks.map(function (b) {
+      return '<label>' + b + ' kg' + '<input type="number" min="0" step="0.0001" data-r="' + i + '" data-b="' + b + '" value="' + esc(r.tarifas[b]) + '" class="' + (b !== 45 && !(n(r.tarifas[b]) > 0) ? 'bad' : '') + '"></label>'; }).join('') + '</div></div>' +
+    '<div class="grid"><label>Fuel (USD/kg)' + inp('fuel', r.fuel, isNaN(n(r.fuel)), '0.0001', 'Fuel') + '</label>' +
+    '<label>IMO (USD/kg)<input type="number" min="0" step="0.0001" data-r="' + i + '" data-k="imo" value="' + esc(r.imoPedido ? '' : r.imo) + '" ' + (r.imoPedido ? 'disabled' : '') + ' class="' + (!r.imoPedido && isNaN(n(r.imo)) ? 'bad' : '') + '"></label>' +
+    '<label style="flex-direction:row;align-items:center;gap:6px;margin-top:18px"><input type="checkbox" data-r="' + i + '" data-k="imoPedido" ' + (r.imoPedido ? 'checked' : '') + '> IMO a pedido</label>' +
+    '<label>Gastos destino (USD)' + inp('destino_usd', r.destino_usd, isNaN(n(r.destino_usd)), '0.01', 'Gastos destino') + '</label>' +
+    '<label>Vigencia hasta<input type="date" data-r="' + i + '" data-k="vigencia" value="' + esc(r.vigencia) + '" class="' + (r.vigencia ? '' : 'bad') + '"></label></div>' +
+    '<label>Observaciones<input data-r="' + i + '" data-k="obs" value="' + esc(r.obs) + '"></label></div>';
+}
+function allinTxt(a) { return isNaN(a) ? '<span class="muted small">All-in: completá la ruta para calcularlo</span>' : 'All-in estimado a ' + S.peso + ' kg: <b>USD ' + fmt(a) + '/kg</b>'; }
+function gastosHTML(origen) {
+  var lista = form.gastos[origen]; if (!lista) return '';
+  return '<div class="tablewrap"><table><thead><tr><th>Concepto</th><th>Importe USD</th><th>Unidad</th><th>Mínimo</th><th>A pedido</th></tr></thead><tbody>' +
+    lista.map(function (c, j) {
+      var extra = D.conceptos.indexOf(c.concepto) < 0;
+      return '<tr data-g="' + j + '"><td>' + (extra ? '<input data-gk="descripcion" placeholder="Descripción del concepto" value="' + esc(c.descripcion) + '" class="' + (String(c.descripcion || '').trim() ? '' : 'bad') + '">' : esc(c.concepto)) + '</td>' +
+        '<td><input type="number" min="0" step="0.01" data-gk="importe" value="' + esc(c.pedido ? '' : c.importe) + '" ' + (c.pedido ? 'disabled' : '') + ' aria-label="Importe ' + esc(c.concepto) + '"></td>' +
+        '<td><select data-gk="unidad">' + D.unidades.map(function (u) { return '<option ' + (u === c.unidad ? 'selected' : '') + '>' + u + '</option>'; }).join('') + '</select></td>' +
+        '<td>' + (c.unidad === 'Por kg' && !c.pedido ? '<input type="number" min="0" step="0.01" data-gk="minimo" value="' + esc(c.minimo) + '" class="' + (vacio(c.minimo) ? 'bad' : '') + '" aria-label="Mínimo">' : '<span class="muted">—</span>') + '</td>' +
+        '<td><input type="checkbox" data-gk="pedido" ' + (c.pedido ? 'checked' : '') + ' aria-label="A pedido"></td></tr>';
+    }).join('') + '</tbody></table></div><div style="margin-top:8px"><button type="button" class="btn" id="otro">+ Otro concepto</button></div>';
+}
+function checkHTML(errs) {
+  return errs.length ? '<p class="small muted">Faltan ' + errs.length + ' dato(s):</p><ul class="check small">' + errs.slice(0, 12).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + (errs.length > 12 ? '<li>y ' + (errs.length - 12) + ' más</li>' : '') + '</ul>'
+    : '<p class="done">Está todo completo.</p>';
+}
+function refrescar() {
+  document.getElementById('check').innerHTML = checkHTML(errores());
+  form.rutas.forEach(function (r, i) { var el = document.querySelector('[data-allin="' + i + '"]'); if (el) el.innerHTML = allinTxt(allin(r)); });
+}
+function bind() {
+  document.querySelectorAll('[data-r]').forEach(function (el) {
+    var r = form.rutas[+el.getAttribute('data-r')], k = el.getAttribute('data-k'), b = el.getAttribute('data-b');
+    if (el.type === 'checkbox') el.onchange = function () { r[k] = el.checked; render(); };
+    else el.oninput = function () {
+      if (b) { r.tarifas[b] = el.value; if (b !== '45') el.classList.toggle('bad', !(n(el.value) > 0)); }
+      else { r[k] = el.value; el.classList.toggle('bad', k === 'obs' ? false : k === 'aerolinea' || k === 'vigencia' ? !el.value.trim() : k === 'transito' || k === 'minimo' ? !(n(el.value) > 0) : isNaN(n(el.value))); }
+      refrescar();
+    };
+  });
+  document.querySelectorAll('[data-g]').forEach(function (tr) {
+    var c = form.gastos[tab][+tr.getAttribute('data-g')];
+    tr.querySelectorAll('[data-gk]').forEach(function (el) {
+      var k = el.getAttribute('data-gk');
+      if (el.type === 'checkbox') el.onchange = function () { c.pedido = el.checked; render(); };
+      else if (k === 'unidad') el.onchange = function () { c.unidad = el.value; render(); };
+      else el.oninput = function () { c[k] = el.value; if (k !== 'importe') el.classList.toggle('bad', !String(el.value).trim()); refrescar(); };
+    });
+  });
+  document.querySelectorAll('[data-tab]').forEach(function (b) { b.onclick = function () { tab = b.getAttribute('data-tab'); render(); }; });
+  var otro = document.getElementById('otro'); if (otro) otro.onclick = function () { form.gastos[tab].push({ concepto: 'Otro', importe: '', unidad: 'Fijo por embarque', minimo: '', pedido: false, descripcion: '' }); render(); };
+  document.getElementById('enviar').onclick = enviar;
+}
+function enviar() {
+  var errs = errores();
+  if (errs.length) { document.getElementById('check').innerHTML = '<div class="alert bad"><b>Todavía faltan datos.</b></div>' + checkHTML(errs); return; }
+  enviando = true; render();
+  var payload = JSON.parse(JSON.stringify(form));
+  payload.gastos = {};
+  form.rutas.forEach(function (r) { payload.gastos[r.origen] = form.gastos[r.origen].map(function (c) { return { concepto: D.conceptos.indexOf(c.concepto) < 0 ? 'Otro: ' + (c.descripcion || '') : c.concepto, importe: c.importe, unidad: c.unidad, minimo: c.minimo, pedido: c.pedido, descripcion: c.descripcion || '' }; }); });
+  google.script.run
+    .withSuccessHandler(function (res) {
+      enviando = false;
+      if (!res.ok) { render(); document.getElementById('check').innerHTML = '<div class="alert bad"><b>BIDCOM no pudo registrar el envío:</b><ul>' + res.errores.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div>'; return; }
+      resultado = res; D.envios = res.envios; render(); window.scrollTo(0, 0);
+    })
+    .withFailureHandler(function (err) { enviando = false; render(); document.getElementById('check').innerHTML = '<div class="alert bad"><b>No se pudo enviar.</b> ' + esc(err && err.message ? err.message : 'Probá de nuevo en unos minutos.') + '</div>'; })
+    .enviarTarifario(CLAVE, payload);
+}
+function renderOk() {
+  document.getElementById('app').innerHTML = '<section class="panel"><div class="alert ok"><h2 style="margin:0 0 6px">Recibimos tu tarifario</h2>' +
+    '<p>Semana ' + esc(S.semana) + ', versión ' + esc(resultado.version) + ' (código ' + esc(resultado.id) + '). Gracias.</p></div>' +
+    '<p class="small muted" style="margin-top:12px">Si necesitás corregir algo, volvé a entrar con tu link: tu envío aparece precargado y podés mandar una nueva versión.</p></section>';
+}
+render();
+</script>
+</body>
+</html>
