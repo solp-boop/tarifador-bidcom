@@ -15,7 +15,8 @@ var HOJA = {
   TARIFAS: 'Tarifas aéreas (envíos)',
   GASTOS: 'Gastos en origen aéreo (envíos)',
   COMPARATIVO: 'Comparativo aéreo',
-  REGISTRO: 'Registro'
+  REGISTRO: 'Registro',
+  CONFIG: 'Configuración'
 };
 
 var BREAKS = [45, 100, 300, 500, 1000];
@@ -36,7 +37,9 @@ function onOpen() {
   SpreadsheetApp.getUi().createMenu('Tarifador BIDCOM')
     .addItem('1. Preparar hojas (primera vez)', 'prepararHojas')
     .addItem('2. Generar links de agentes', 'generarLinks')
+    .addItem('3. Verificar la base madre', 'verificarBaseMadre')
     .addSeparator()
+    .addItem('Pasar la semana actual a la base madre', 'pasarSemanaABaseMadre')
     .addItem('Ir al comparativo', 'irAlComparativo')
     .addToUi();
 }
@@ -128,6 +131,25 @@ function prepararHojas() {
     var c = ss.insertSheet(HOJA.COMPARATIVO);
     armarComparativo(c);
     creadas.push(HOJA.COMPARATIVO);
+  }
+
+  if (!ss.getSheetByName(HOJA.CONFIG)) {
+    var k = ss.insertSheet(HOJA.CONFIG);
+    k.getRange('A1').setValue('Configuración del pegado en la base madre').setFontWeight('bold').setFontSize(14);
+    k.getRange('A2').setValue('Cada envío de un agente se pega solo en la pestaña de la base madre que indiques acá. No se cambian columnas ni formatos: se completa cada columna según su encabezado.');
+    k.getRange(4, 1, 5, 3).setValues([
+      ['Base madre: link de la planilla', '', 'Vacío = esta misma planilla. Si la base madre es otro archivo, pegá acá su link.'],
+      ['Pestaña de destino (aéreo)', '', 'Nombre exacto de la pestaña donde hoy pegás los tarifarios de los agentes.'],
+      ['Pegar automáticamente al recibir', 'SI', 'NO = solo se guarda en las pestañas de envíos; se pasa a mano con el menú.'],
+      ['IMO a pedido se escribe como', 'Upon RQST', 'Texto que se pone en la columna de IMO cuando el agente lo marca a pedido.'],
+      ['Si el agente manda una versión nueva', 'Reemplazar la fila anterior', 'Reemplazar = una fila por agente, semana y ruta. Agregar = queda una fila por versión.']]);
+    k.getRange('A4:A8').setFontWeight('bold');
+    k.getRange('B4:B8').setBackground('#FFF2CC');
+    k.getRange('B6').setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['SI', 'NO'], true).build());
+    k.getRange('B8').setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['Reemplazar la fila anterior', 'Agregar una fila nueva'], true).build());
+    k.getRange('A10').setValue('Después de completar, usá el menú Tarifador BIDCOM > 3. Verificar la base madre para ver qué columnas se van a completar.');
+    k.setColumnWidth(1, 280); k.setColumnWidth(2, 360); k.setColumnWidth(3, 560);
+    creadas.push(HOJA.CONFIG);
   }
 
   if (!ss.getSheetByName(HOJA.REGISTRO)) {
@@ -349,6 +371,20 @@ function enviarTarifario(clave, envio) {
 
     registrar(agente.nombre, 'Envió tarifario ' + sol.semana + ' (versión ' + version + ')', envio.rutas.length + ' ruta(s), ' + filasG.length + ' gasto(s) en origen. ID ' + id);
     SpreadsheetApp.flush();
+    // Pegado en la base madre: si falla, el envío igual queda guardado y el error va al Registro
+    try {
+      var cfg = leerConfig();
+      if (cfg.auto) {
+        pegarEnBaseMadre(envio.rutas.map(function (r) {
+          return { semana: sol.semana, agente: agente.nombre, version: version, recibido: ahora, origen: r.origen, destino: r.destino, aerolinea: r.aerolinea,
+            transito: num(r.transito), minimo: num(r.minimo), tarifas: r.tarifas, fuel: num(r.fuel), imo: r.imoPedido ? '' : num(r.imo), imoPedido: !!r.imoPedido,
+            destino_usd: num(r.destino_usd), vigencia: aFecha(r.vigencia), obs: r.obs || '',
+            gastos: (envio.gastos[r.origen] || []).map(function (c) { return { importe: num(c.importe), unidad: c.unidad, minimo: num(c.minimo), pedido: !!c.pedido }; }) };
+        }), sol.peso, cfg);
+      }
+    } catch (err) {
+      registrar('BIDCOM', 'Error al pegar en la base madre', String(err && err.message || err));
+    }
     return { ok: true, version: version, id: id, envios: datosParaAgente(agente).envios };
   } finally {
     lock.releaseLock();
@@ -402,4 +438,194 @@ function semanaISO(d) {
   var primero = new Date(Date.UTC(x.getUTCFullYear(), 0, 4));
   var sem = 1 + Math.round(((x - primero) / 86400000 - 3 + ((primero.getUTCDay() + 6) % 7)) / 7);
   return 'WK-' + x.getUTCFullYear() + '-W' + (sem < 10 ? '0' : '') + sem;
+}
+
+/* ------------------------------------------------------------------ */
+/* Pegado automático en la base madre                                  */
+/* Se completa cada columna según su encabezado. No se agregan ni       */
+/* mueven columnas, y las columnas con fórmula se respetan.             */
+/* ------------------------------------------------------------------ */
+var MAPA_AEREO = [
+  ['semana', ['WEEK ID', 'WEEK', 'SEMANA', 'WEEK ID SEMANA']],
+  ['agente', ['AGENT', 'AGENTE', 'FFWW', 'FORWARDER']],
+  ['origen', ['ORIGIN AIRPORT', 'ORIGEN', 'AEROPUERTO ORIGEN', 'AEROPUERTO DE ORIGEN', 'ORIGIN']],
+  ['destino', ['DESTINATION AIRPORT', 'DESTINO', 'AEROPUERTO DESTINO', 'AEROPUERTO DE DESTINO', 'DESTINATION']],
+  ['aerolinea', ['AEROLINEA HABITUAL', 'AEROLINEA', 'AIRLINE', 'CARRIER']],
+  ['transito', ['TRANSITO HABITUAL (DIAS)', 'TRANSITO HABITUAL', 'TRANSITO (DIAS)', 'TRANSITO', 'TT', 'TRANSIT TIME']],
+  ['moneda', ['CURRENCY', 'MONEDA']],
+  ['minimo', ['MINIMUM CHARGE', 'MINIMO', 'MIN', 'MINIMUM']],
+  ['r45', ['RATE 45 KG', '45 KG', '+45', '+45 KG']],
+  ['r100', ['RATE 100 KG', '100 KG', '+100', '+100 KG']],
+  ['r300', ['RATE 300 KG', '300 KG', '+300', '+300 KG']],
+  ['r500', ['RATE 500 KG', '500 KG', '+500', '+500 KG']],
+  ['r1000', ['RATE 1000 KG', '1000 KG', '+1000', '+1000 KG']],
+  ['fuel', ['FUEL SURCHARGE (USD/KG)', 'FUEL SURCHARGE', 'FUEL USD/KG', 'FUEL', 'FSC']],
+  ['imo', ['RECARGO IMO (USD/KG)', 'RECARGO IMO', 'IMO USD/KG', 'IMO']],
+  ['origenUsd', ['CARGOS DE ORIGEN', 'GASTOS EN ORIGEN', 'GASTOS ORIGEN', 'ORIGIN CHARGES'], true],
+  ['destinoUsd', ['CARGOS DE DESTINO', 'GASTOS EN DESTINO', 'GASTOS DESTINO', 'DESTINATION CHARGES'], true],
+  ['vigencia', ['VIGENCIA', 'VALIDEZ HASTA', 'VALIDITY', 'VALID UNTIL'], true],
+  ['allin', ['ALL-IN', 'ALL IN', 'ALLIN'], true],
+  ['obs', ['OBSERVACIONES', 'COMENTARIOS', 'REMARKS', 'OBS']],
+  ['version', ['VERSION']],
+  ['recibido', ['FECHA RECEPCION', 'FECHA DE RECEPCION', 'RECIBIDO', 'FECHA DE CARGA']]
+];
+var NOMBRE_CAMPO = { semana: 'Semana', agente: 'Agente', origen: 'Origen', destino: 'Destino', aerolinea: 'Aerolínea', transito: 'Tránsito', moneda: 'Moneda',
+  minimo: 'Mínimo', r45: '45 kg', r100: '100 kg', r300: '300 kg', r500: '500 kg', r1000: '1000 kg', fuel: 'Fuel', imo: 'IMO', origenUsd: 'Gastos en origen (total)',
+  destinoUsd: 'Gastos destino', vigencia: 'Vigencia', allin: 'All-in USD/kg', obs: 'Observaciones', version: 'Versión', recibido: 'Fecha de recepción' };
+
+function claveTexto(v) {
+  return String(v === null || v === undefined ? '' : v).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9+]/g, '');
+}
+function leerConfig() {
+  var k = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(HOJA.CONFIG);
+  if (!k) return { auto: false };
+  var v = k.getRange('B4:B8').getValues();
+  return { url: String(v[0][0]).trim(), pestana: String(v[1][0]).trim(), auto: String(v[2][0]).trim().toUpperCase() === 'SI' && !!String(v[1][0]).trim(),
+           imoTexto: String(v[3][0]).trim() || 'Upon RQST', reemplazar: String(v[4][0]).indexOf('Agregar') !== 0 };
+}
+function abrirDestino(cfg) {
+  if (!cfg.pestana) throw new Error('Falta el nombre de la pestaña de destino en la pestaña Configuración.');
+  var libro = cfg.url ? SpreadsheetApp.openByUrl(cfg.url) : SpreadsheetApp.getActiveSpreadsheet();
+  var hoja = libro.getSheetByName(cfg.pestana);
+  if (!hoja) throw new Error('No existe la pestaña "' + cfg.pestana + '" en la base madre. Revisá que el nombre sea exacto.');
+  return hoja;
+}
+// Busca en las primeras 20 filas la que más encabezados reconocidos tiene
+function mapearEncabezados(hoja) {
+  var n = Math.min(20, Math.max(1, hoja.getLastRow())), ancho = Math.max(1, hoja.getLastColumn());
+  var filas = hoja.getRange(1, 1, n, ancho).getValues(), mejor = { fila: 0, mapa: {}, n: 0, desconocidas: [] };
+  filas.forEach(function (fila, i) {
+    var mapa = {}, cuenta = 0, desconocidas = [];
+    fila.forEach(function (h, j) {
+      var k = claveTexto(h); if (!k) return;
+      var campo = null;
+      MAPA_AEREO.forEach(function (m) {
+        if (campo) return;
+        m[1].forEach(function (alias) { var a = claveTexto(alias); if (!campo && (k === a || (m[2] && k.indexOf(a) === 0))) campo = m[0]; });
+      });
+      if (campo && !mapa[campo]) { mapa[campo] = j + 1; cuenta++; } else if (!campo) desconocidas.push(String(h).trim());
+    });
+    if (cuenta > mejor.n) mejor = { fila: i + 1, mapa: mapa, n: cuenta, desconocidas: desconocidas };
+  });
+  return mejor.n >= 3 ? mejor : null;
+}
+function tarifaAlPeso(tarifas, W) {
+  var b = [1000, 500, 300, 100, 45].filter(function (x) { return x <= W && num(tarifas[x]) > 0; })[0];
+  return b ? num(tarifas[b]) : NaN;
+}
+function calcularAllIn(f, W) {
+  var origen = (f.gastos || []).reduce(function (s, c) {
+    if (c.pedido || c.importe === '' || isNaN(c.importe)) return s;
+    return s + (c.unidad === 'Por kg' ? Math.max(Number(c.minimo) || 0, c.importe * W) : c.importe);
+  }, 0);
+  var rate = tarifaAlPeso(f.tarifas || {}, W);
+  if (isNaN(rate) || f.minimo === '' || isNaN(f.minimo)) return { origen: origen, allin: '' };
+  var imo = f.imoPedido ? 0 : (Number(f.imo) || 0);
+  var allin = (Math.max(f.minimo, rate * W) + ((Number(f.fuel) || 0) + imo) * W + origen + (Number(f.destino_usd) || 0)) / W;
+  return { origen: Math.round(origen * 100) / 100, allin: Math.round(allin * 10000) / 10000 };
+}
+function valorDe(campo, f, calc, cfg) {
+  switch (campo) {
+    case 'semana': return f.semana; case 'agente': return f.agente; case 'origen': return f.origen; case 'destino': return f.destino;
+    case 'aerolinea': return f.aerolinea; case 'transito': return f.transito; case 'moneda': return 'USD'; case 'minimo': return f.minimo;
+    case 'r45': return num(f.tarifas[45]); case 'r100': return num(f.tarifas[100]); case 'r300': return num(f.tarifas[300]);
+    case 'r500': return num(f.tarifas[500]); case 'r1000': return num(f.tarifas[1000]);
+    case 'fuel': return f.fuel; case 'imo': return f.imoPedido ? cfg.imoTexto : f.imo;
+    case 'origenUsd': return calc.origen; case 'destinoUsd': return f.destino_usd; case 'vigencia': return f.vigencia;
+    case 'allin': return calc.allin; case 'obs': return f.obs; case 'version': return f.version; case 'recibido': return f.recibido;
+  }
+  return '';
+}
+function pegarEnBaseMadre(filas, W, cfg) {
+  cfg = cfg || leerConfig();
+  var hoja = abrirDestino(cfg), enc = mapearEncabezados(hoja);
+  if (!enc) throw new Error('No encontré los encabezados en la pestaña "' + cfg.pestana + '" (busqué en las primeras 20 filas).');
+  var M = enc.mapa, colClave = M.origen || M.agente;
+  if (!colClave) throw new Error('La pestaña de destino no tiene columna de Origen ni de Agente.');
+  var ancho = hoja.getLastColumn(), nuevas = 0, actualizadas = 0;
+  // Última fila con datos según la columna de Origen (las filas de abajo pueden tener fórmulas preparadas)
+  var ultima = enc.fila, total = hoja.getLastRow();
+  var datos = total > enc.fila ? hoja.getRange(enc.fila + 1, 1, total - enc.fila, ancho).getValues() : [];
+  var formulas = total > enc.fila ? hoja.getRange(enc.fila + 1, 1, total - enc.fila, ancho).getFormulas() : [];
+  datos.forEach(function (r, i) { if (String(r[colClave - 1]).trim() !== '') ultima = enc.fila + 1 + i; });
+
+  filas.forEach(function (f) {
+    var calc = calcularAllIn(f, W), fila = 0;
+    if (cfg.reemplazar && M.semana && M.agente && M.origen) {
+      for (var i = 0; i < datos.length; i++) {
+        var r = datos[i];
+        if (claveTexto(r[M.semana - 1]) === claveTexto(f.semana) && claveTexto(r[M.agente - 1]) === claveTexto(f.agente) && claveTexto(r[M.origen - 1]) === claveTexto(f.origen)) { fila = enc.fila + 1 + i; break; }
+      }
+    }
+    var esNueva = !fila;
+    if (esNueva) {
+      fila = ultima + 1; ultima = fila;
+      if (fila - 1 > enc.fila) hoja.getRange(fila - 1, 1, 1, ancho).copyTo(hoja.getRange(fila, 1, 1, ancho), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+    }
+    var idx = fila - enc.fila - 1;
+    datos[idx] = datos[idx] || []; formulas[idx] = formulas[idx] || [];
+    var filaFormulas = formulas[idx].slice();
+    var filaArriba = idx > 0 ? (formulas[idx - 1] || []) : [];
+    Object.keys(M).forEach(function (campo) {
+      var c = M[campo];
+      if (filaFormulas[c - 1]) return;                                     // la celda ya tiene fórmula: se respeta
+      if (esNueva && filaArriba[c - 1]) {                                  // columna calculada en la base: se copia la fórmula de arriba
+        hoja.getRange(fila - 1, c).copyTo(hoja.getRange(fila, c), SpreadsheetApp.CopyPasteType.PASTE_FORMULA, false);
+        formulas[idx][c - 1] = filaArriba[c - 1];
+        return;
+      }
+      var v = valorDe(campo, f, calc, cfg);
+      hoja.getRange(fila, c).setValue(v === undefined || (typeof v === 'number' && isNaN(v)) ? '' : v);
+    });
+    if (esNueva) {
+      // Columnas que no reconozco pero tienen fórmula en la fila de arriba: también se copian
+      filaArriba.forEach(function (fx, j) {
+        var usada = Object.keys(M).some(function (k) { return M[k] === j + 1; });
+        if (fx && !usada && !formulas[idx][j]) { hoja.getRange(fila - 1, j + 1).copyTo(hoja.getRange(fila, j + 1), SpreadsheetApp.CopyPasteType.PASTE_FORMULA, false); formulas[idx][j] = fx; }
+      });
+      nuevas++;
+      if (M.semana) datos[idx][M.semana - 1] = f.semana;
+      if (M.agente) datos[idx][M.agente - 1] = f.agente;
+      if (M.origen) datos[idx][M.origen - 1] = f.origen;
+    } else actualizadas++;
+  });
+  registrar('BIDCOM', 'Pegó en la base madre', nuevas + ' fila(s) nueva(s) y ' + actualizadas + ' actualizada(s) en "' + cfg.pestana + '"');
+  return { nuevas: nuevas, actualizadas: actualizadas };
+}
+
+function verificarBaseMadre() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    var cfg = leerConfig(), hoja = abrirDestino(cfg), enc = mapearEncabezados(hoja);
+    if (!enc) { ui.alert('No encontré los encabezados en "' + cfg.pestana + '". Revisá que la pestaña tenga una fila de títulos (por ejemplo Week ID, Agent, Origin Airport, Rate 500 KG).'); return; }
+    var campos = Object.keys(enc.mapa).sort(function (a, b) { return enc.mapa[a] - enc.mapa[b]; })
+      .map(function (k) { return '• ' + hoja.getRange(enc.fila, enc.mapa[k]).getValue() + '  ←  ' + NOMBRE_CAMPO[k]; });
+    var faltan = Object.keys(NOMBRE_CAMPO).filter(function (k) { return !enc.mapa[k]; }).map(function (k) { return NOMBRE_CAMPO[k]; });
+    ui.alert('Base madre encontrada: pestaña "' + cfg.pestana + '", encabezados en la fila ' + enc.fila + '.\n\n' +
+      'Columnas que se van a completar solas:\n' + campos.join('\n') +
+      (enc.desconocidas.length ? '\n\nColumnas que no toco (quedan como están, y si tienen fórmula se copia): ' + enc.desconocidas.join(', ') : '') +
+      (faltan.length ? '\n\nDatos que la base madre no tiene como columna (quedan solo en las pestañas de envíos): ' + faltan.join(', ') : '') +
+      '\n\nPegado automático: ' + (cfg.auto ? 'activado' : 'desactivado') + '.');
+  } catch (e) { ui.alert(String(e.message || e)); }
+}
+
+function pasarSemanaABaseMadre() {
+  var ui = SpreadsheetApp.getUi(), ss = SpreadsheetApp.getActiveSpreadsheet(), sol = leerSolicitud();
+  var t = ss.getSheetByName(HOJA.TARIFAS).getDataRange().getValues(), g = ss.getSheetByName(HOJA.GASTOS).getDataRange().getValues();
+  var filas = [];
+  for (var i = 1; i < t.length; i++) {
+    if (t[i][2] !== sol.semana || t[i][5] !== 'SI') continue;
+    var id = t[i][0], origen = t[i][6];
+    filas.push({ semana: t[i][2], agente: t[i][3], version: t[i][4], recibido: t[i][1], origen: origen, destino: t[i][7], aerolinea: t[i][8], transito: t[i][9],
+      minimo: num(t[i][11]), tarifas: { 45: t[i][12], 100: t[i][13], 300: t[i][14], 500: t[i][15], 1000: t[i][16] }, fuel: num(t[i][17]), imo: num(t[i][18]),
+      imoPedido: t[i][19] === 'SI', destino_usd: num(t[i][21]), vigencia: t[i][22], obs: t[i][24],
+      gastos: g.slice(1).filter(function (x) { return x[0] === id && x[4] === origen; })
+        .map(function (x) { return { importe: num(x[7]), unidad: x[8], minimo: num(x[9]), pedido: x[10] === 'SI' }; }) });
+  }
+  if (!filas.length) { ui.alert('No hay envíos vigentes para la semana ' + sol.semana + '.'); return; }
+  try {
+    var cfg = leerConfig(); cfg.reemplazar = true;
+    var r = pegarEnBaseMadre(filas, sol.peso, cfg);
+    ui.alert('Listo: ' + r.nuevas + ' fila(s) nueva(s) y ' + r.actualizadas + ' actualizada(s) en "' + cfg.pestana + '".');
+  } catch (e) { ui.alert(String(e.message || e)); }
 }

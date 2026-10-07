@@ -2,6 +2,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 <style>
 /* Layout: barra superior con selector de perfil, navegación lateral, área de trabajo de hasta 1180px */
 :root {
@@ -314,6 +315,11 @@ const usd = n => n == null || isNaN(n) ? '—' : 'USD ' + nf2.format(Math.round(
 const pct = n => n == null || isNaN(n) ? '—' : (n > 0 ? '+' : '') + nf2.format(Math.round(n * 100) / 100) + '%';
 const signed = n => n == null || isNaN(n) ? '—' : (n > 0 ? '+' : n < 0 ? '−' : '') + nf2.format(Math.abs(Math.round(n * 100) / 100));
 const norm = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+// Todo valor que aparece en las listas desplegables de las plantillas se reconoce al importar
+Object.keys(PORTS).forEach(c => { PORT_ALIASES[norm(PORTS[c])] ||= c; });
+LINES.forEach(l => { LINE_ALIASES[norm(l)] ||= l; });
+CHARGES.forEach(c => { CHARGE_ALIASES[norm(c.name)] ||= c.code; });
+AIR_CHARGES.forEach(c => { AIR_CHARGE_ALIASES[norm(c.name)] ||= c.code; });
 const toBase = (amt, cur) => (Number(amt) || 0) * (CURRENCIES[cur] ?? NaN);
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const portName = code => PORTS[code] || code || '—';
@@ -535,11 +541,23 @@ function parseLegacy(rows) {
 // Plantilla BIDCOM (hojas Fletes + Gastos locales, con columna Ruta)
 const TPL_FREIGHT_COLS = ['Ruta','POL','POD','Naviera','Servicio','Puerto transbordo','Transit time (días)','Pagadero','Incoterm','Validez desde','Validez hasta','Moneda','20ST','40ST','40HQ','40NOR','Días libres 20ST','Días libres 40ST','Días libres 40HQ','Días libres 40NOR','Comentarios'];
 const TPL_LOCAL_COLS = ['Ruta','Concepto','Moneda','Importe','Unidad','Descripción','Justificación'];
+function sheetRows(ws, mustHave) {
+  const grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
+  let h = grid.slice(0, 15).findIndex(r => mustHave.every(m => r.map(norm).includes(m)));
+  const found = h >= 0; if (!found) h = 0;
+  const heads = (grid[h] || []).map(x => String(x).trim()), rows = [];
+  for (let i = h + 1; i < grid.length; i++) {
+    const o = { __row: i + 1 }; heads.forEach((k, j) => { if (k) o[k] = grid[i][j] ?? ''; }); rows.push(o);
+  }
+  return { found, headers: heads.map(norm), rows };
+}
+const filled = v => String(v ?? '').trim() !== '';
 function parseTemplate(fRows, lRows) {
   const errors = [], warnings = [], routes = [], rowStatus = [], byRuta = new Map();
   let validFrom = '', validTo = '';
   fRows.forEach((r, i) => {
-    const rowNo = i + 2, errs = [], warns = [];
+    if (!['POL','POD','Naviera',...CONTAINERS].some(k => filled(r[k]))) return;   // fila precargada sin usar
+    const rowNo = r.__row ?? i + 2, errs = [], warns = [];
     const ruta = String(r.Ruta ?? '').trim(); if (!ruta) errs.push('falta Ruta (identificador, ej. R1)');
     const pol = mapPort(r.POL); if (pol.error) errs.push(pol.error === 'falta' ? 'falta POL' : 'POL ' + pol.error);
     const pod = mapPort(r.POD); if (pod.error) errs.push(pod.error === 'falta' ? 'falta POD' : 'POD ' + pod.error);
@@ -570,7 +588,8 @@ function parseTemplate(fRows, lRows) {
     routes.push(route);
   });
   lRows.forEach((r, i) => {
-    const rowNo = i + 2, errs = [], warns = [];
+    if (!filled(r.Importe)) return;   // concepto que no aplica: se deja vacío
+    const rowNo = r.__row ?? i + 2, errs = [], warns = [];
     const ruta = String(r.Ruta ?? '').trim(), route = byRuta.get(ruta);
     if (!route) errs.push(ruta ? `la Ruta "${ruta}" no existe en la hoja Fletes` : 'falta Ruta');
     const cn = norm(r.Concepto); let code = CHARGE_ALIASES[cn] || null, std = !!code;
@@ -592,15 +611,16 @@ function readWorkbook(wb) {
   const names = wb.SheetNames, find = re => names.find(n => re.test(norm(n)));
   const fName = find(/^FLETES/);
   if (!fName) return { fatal: 'No se encontró la hoja "Fletes". Usá la plantilla BIDCOM.' };
-  const fRows = XLSX.utils.sheet_to_json(wb.Sheets[fName], { defval: '', raw: true }).filter(r => Object.values(r).some(v => v !== '' && v != null));
-  const headers = Object.keys(fRows[0] || {}).map(norm);
-  if (headers.includes('RUTA')) {
-    const missing = TPL_FREIGHT_COLS.filter(c => !headers.includes(norm(c)));
+  const tpl = sheetRows(wb.Sheets[fName], ['RUTA', 'POL']);
+  if (tpl.found) {
+    const missing = TPL_FREIGHT_COLS.filter(c => !tpl.headers.includes(norm(c)));
     if (missing.length) return { fatal: `Faltan columnas en la hoja Fletes: ${missing.join(', ')}` };
     const lName = find(/^GASTOS/);
-    const lRows = lName ? XLSX.utils.sheet_to_json(wb.Sheets[lName], { defval: '', raw: true }).filter(r => Object.values(r).some(v => v !== '' && v != null)) : [];
-    return parseTemplate(fRows, lRows);
+    const lRows = lName ? sheetRows(wb.Sheets[lName], ['RUTA', 'CONCEPTO']).rows : [];
+    return parseTemplate(tpl.rows, lRows);
   }
+  const fRows = XLSX.utils.sheet_to_json(wb.Sheets[fName], { defval: '', raw: true }).filter(r => Object.values(r).some(v => v !== '' && v != null));
+  const headers = Object.keys(fRows[0] || {}).map(norm);
   if (headers.includes('FFWW') || headers.includes('VALOR FLETE')) return parseLegacy(fRows);
   return { fatal: 'No se reconocen las columnas de la hoja Fletes. Usá la plantilla BIDCOM.' };
 }
@@ -1082,7 +1102,9 @@ async function handleFile(file) {
 }
 async function downloadFile(mode, example) {
   if (typeof XLSX === 'undefined') { toast('No se pudo generar el archivo'); return; }
-  const data = new Uint8Array(mode === 'air' ? buildAirTemplate(example) : buildTemplate(example));
+  let data;
+  try { data = typeof ExcelJS !== 'undefined' ? new Uint8Array(await buildStyledTemplate(mode, example)) : null; } catch (e) { data = null; }
+  if (!data) data = new Uint8Array(mode === 'air' ? buildAirTemplate(example) : buildTemplate(example));   // sin formato, si no cargó la librería
   const name = mode === 'air' ? `BIDCOM_Tarifario_Aereo_${state.airRequest.week.slice(3)}_${example ? 'EJEMPLO' : 'MODELO'}.xlsx` : `BIDCOM_Cotizacion_Maritima_${example ? 'EJEMPLO' : 'MODELO'}.xlsx`;
   try {
     const dl = window.claude?.use ? await window.claude.use('downloads') : null;
@@ -1533,9 +1555,14 @@ const AIR_TPL_LOCAL = ['Aeropuerto','Concepto','Moneda','Importe','Unidad','Mín
 function parseAirTemplate(wb) {
   const errors = [], warnings = [], rowStatus = [], routes = [], origin = {}; let validTo = '';
   const tName = wb.SheetNames.find(n => norm(n) === 'TARIFARIO'), gName = wb.SheetNames.find(n => /GASTOS/.test(norm(n)));
-  const rows = XLSX.utils.sheet_to_json(wb.Sheets[tName], { defval: '', raw: true }).filter(r => Object.values(r).some(v => v !== ''));
+  const rows = sheetRows(wb.Sheets[tName], ['ORIGEN', 'AEROLINEA']).rows;
   rows.forEach((r, i) => {
-    const rowNo = i + 2, errs = [], warns = [], route = emptyAirRoute(AIRPORT_ALIASES[norm(r['Origen'])] || '');
+    const rowNo = r.__row ?? i + 2;
+    if (!['Aerolínea', 'Mínimo', ...AIR_BREAKS.map(b => `${b} kg`)].some(k => filled(r[k]))) {   // ruta precargada sin cotizar
+      if (filled(r['Origen'])) warnings.push({ rowNo, sheet: 'Tarifario', msg: `${r['Origen']}: ruta sin cotizar` });
+      return;
+    }
+    const errs = [], warns = [], route = emptyAirRoute(AIRPORT_ALIASES[norm(r['Origen'])] || '');
     Object.assign(route, { originRaw: r['Origen'], dest: AIRPORT_ALIASES[norm(r['Destino'])] || '', airline: String(r['Aerolínea'] || '').trim(), transit: Number(r['Tránsito (días)']) || '',
       cur: norm(r['Moneda']), min: Number(r['Mínimo']) || '', fuel: r['Fuel USD/kg'] === '' ? '' : Number(r['Fuel USD/kg']), imoOnRequest: norm(r['IMO a pedido']) === 'SI',
       imo: r['IMO USD/kg'] === '' ? '' : Number(r['IMO USD/kg']), destCharges: r['Gastos destino USD'] === '' ? '' : Number(r['Gastos destino USD']), remarks: String(r['Observaciones'] || '') });
@@ -1546,10 +1573,10 @@ function parseAirTemplate(wb) {
     errs.forEach(e => errors.push({ rowNo, sheet: 'Tarifario', msg: e }));
     routes.push(route);
   });
-  const lrows = gName ? XLSX.utils.sheet_to_json(wb.Sheets[gName], { defval: '', raw: true }).filter(r => Object.values(r).some(v => v !== '')) : [];
+  const lrows = gName ? sheetRows(wb.Sheets[gName], ['AEROPUERTO', 'CONCEPTO']).rows.filter(r => filled(r['Importe']) || norm(r['A pedido']) === 'SI') : [];
   if (!gName) errors.push({ rowNo: '—', sheet: 'Gastos en origen', msg: 'falta la hoja Gastos en origen: es obligatoria' });
   lrows.forEach((r, i) => {
-    const rowNo = i + 2, errs = [], ap = AIRPORT_ALIASES[norm(r['Aeropuerto'])];
+    const rowNo = r.__row ?? i + 2, errs = [], ap = AIRPORT_ALIASES[norm(r['Aeropuerto'])];
     if (!ap) errs.push(`aeropuerto "${r['Aeropuerto']}" no reconocido`);
     const code = AIR_CHARGE_ALIASES[norm(r['Concepto'])] || 'OTHER', unitN = norm(r['Unidad']), onReq = norm(r['A pedido']) === 'SI';
     const unit = /KG/.test(unitN) ? 'per_kg' : /FIJO|EMBARQUE/.test(unitN) ? 'per_shipment' : '';
@@ -1591,6 +1618,312 @@ function buildAirTemplate(example) {
   const L = [['Aeropuertos','Monedas','Conceptos','Unidad','SI / NO']]; for (let i = 0; i < Math.max(...cols.map(c => c.length)); i++) L.push(cols.map(c => c[i] ?? ''));
   add(L, 'Listas', [22, 9, 24, 18, 8]);
   return XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+}
+
+/* =====================================================================
+   Plantillas Excel con formato (ExcelJS): colores, desplegables, notas y columna Control
+   ===================================================================== */
+const XLC = {
+  title: '0B3C5D', sub: 'FDF3D7', subInk: '7A5300', ink: '15212E', white: 'FFFFFF', line: 'C9D3DD',
+  req: 'FFF4CC', opt: 'E6F0F8', auto: 'EDEDED',
+  groups: { ruta: ['1F4E79', 'D6E4F0'], vig: ['2F5597', 'DAE3F3'], flete: ['2E75B6', 'DDEBF7'], dias: ['4E7D32', 'E2EFDA'],
+            gasto: ['9C6500', 'FCE4B6'], obs: ['6B6B6B', 'F2F2F2'], ctrl: ['404040', 'E7E6E6'] }
+};
+const xlFill = hex => ({ type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + hex } });
+const xlBorder = () => { const b = { style: 'thin', color: { argb: 'FF' + XLC.line } }; return { top: b, left: b, bottom: b, right: b }; };
+const xlCol = n => { let s = ''; for (; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s; return s; };
+
+// Hoja de datos: título, una línea de ayuda, grupos de columnas, encabezados con nota y filas con color por tipo de celda
+function xlDataSheet(wb, o) {
+  const ws = wb.addWorksheet(o.name, { properties: { tabColor: { argb: 'FF' + o.tab } }, views: [{ state: 'frozen', xSplit: o.freezeCols || 0, ySplit: 4 }],
+    pageSetup: { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, printTitlesRow: '3:4' } });
+  const n = o.cols.length, last = xlCol(n), first = 5, lastRow = 4 + o.nRows;
+  ws.columns = o.cols.map(c => ({ width: c.w || 14 }));
+  ws.mergeCells(`A1:${last}1`);
+  Object.assign(ws.getCell('A1'), { value: o.title });
+  ws.getCell('A1').font = { bold: true, size: 14, color: { argb: 'FF' + XLC.white }, name: 'Arial' };
+  ws.getCell('A1').fill = xlFill(XLC.title); ws.getCell('A1').alignment = { vertical: 'middle', indent: 1 };
+  ws.getRow(1).height = 28;
+  ws.mergeCells(`A2:${last}2`);
+  ws.getCell('A2').value = o.help;
+  ws.getCell('A2').font = { size: 10, color: { argb: 'FF' + XLC.subInk }, name: 'Arial' };
+  ws.getCell('A2').fill = xlFill(XLC.sub); ws.getCell('A2').alignment = { vertical: 'middle', wrapText: true, indent: 1 };
+  ws.getRow(2).height = 32;
+  // Fila 3: grupos
+  let c0 = 1;
+  o.groups.forEach(g => {
+    const a = `${xlCol(c0)}3`, b = `${xlCol(c0 + g.span - 1)}3`;
+    if (g.span > 1) ws.mergeCells(`${a}:${b}`);
+    const cell = ws.getCell(a); cell.value = g.label;
+    cell.font = { bold: true, size: 10, color: { argb: 'FF' + XLC.white }, name: 'Arial' };
+    cell.fill = xlFill(XLC.groups[g.key][0]); cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    c0 += g.span;
+  });
+  ws.getRow(3).height = 20;
+  // Fila 4: encabezados (los nombres son los que lee el importador)
+  o.cols.forEach((c, i) => {
+    const cell = ws.getCell(4, i + 1);
+    cell.value = c.h; if (c.note) cell.note = c.note;
+    cell.font = { bold: true, size: 10, color: { argb: 'FF' + XLC.ink }, name: 'Arial' };
+    cell.fill = xlFill(XLC.groups[c.g][1]); cell.border = xlBorder();
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+  });
+  ws.getRow(4).height = 36;
+  // Filas de datos
+  for (let r = first; r <= lastRow; r++) {
+    const vals = o.rows[r - first] || [];
+    o.cols.forEach((c, i) => {
+      const cell = ws.getCell(r, i + 1);
+      const v = vals[i];
+      if (c.formula) cell.value = { formula: c.formula(r) };
+      else if (v !== undefined && v !== null && v !== '') cell.value = v;
+      cell.fill = xlFill(XLC[c.kind]); cell.border = xlBorder();
+      cell.font = { size: 10, name: 'Arial', color: { argb: 'FF' + XLC.ink }, bold: !!c.formula };
+      if (c.fmt) cell.numFmt = c.fmt;
+      cell.alignment = { vertical: 'middle', horizontal: c.align || (c.fmt ? 'right' : 'left'), wrapText: !!c.wrap };
+    });
+  }
+  // Listas desplegables
+  o.cols.forEach((c, i) => {
+    if (!c.list) return;
+    const ref = `${xlCol(i + 1)}${first}:${xlCol(i + 1)}${lastRow}`;
+    ws.dataValidations.add(ref, { type: 'list', allowBlank: true, formulae: [c.list], showErrorMessage: true,
+      errorStyle: c.strict === false ? 'information' : 'stop', errorTitle: 'Valor fuera de la lista',
+      error: c.strict === false ? 'No está en la lista. Si es un concepto adicional, completá la Descripción.' : 'Elegí un valor de la lista desplegable.' });
+  });
+  o.cols.forEach((c, i) => {
+    if (c.kindValid === 'date') ws.dataValidations.add(`${xlCol(i + 1)}${first}:${xlCol(i + 1)}${lastRow}`,
+      { type: 'date', operator: 'greaterThan', allowBlank: true, formulae: [new Date(2020, 0, 1)], showErrorMessage: true, errorTitle: 'Fecha inválida', error: 'Escribí la fecha como dd/mm/aaaa.' });
+    if (c.kindValid === 'number') ws.dataValidations.add(`${xlCol(i + 1)}${first}:${xlCol(i + 1)}${lastRow}`,
+      { type: 'decimal', operator: 'greaterThanOrEqual', allowBlank: true, formulae: [0], showErrorMessage: true, errorTitle: 'Número inválido', error: 'Escribí solo el número, sin USD ni otros textos.' });
+  });
+  // Semáforo de la columna Control
+  const ci = o.cols.findIndex(c => c.formula);
+  if (ci >= 0) {
+    const ref = `${xlCol(ci + 1)}${first}:${xlCol(ci + 1)}${lastRow}`;
+    const st = (bg, fg) => ({ fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: 'FF' + bg } }, font: { color: { argb: 'FF' + fg }, bold: true } });
+    const cell0 = `${xlCol(ci + 1)}${first}`;
+    const rule = (text, prio, bg, fg) => ({ type: 'expression', priority: prio, formulae: [`ISNUMBER(SEARCH("${text}",${cell0}))`], style: st(bg, fg) });
+    ws.addConditionalFormatting({ ref, rules: [rule('Falta', 1, 'FFC7CE', '9C0006'), rule('Revisar', 2, 'FFEB9C', '9C5700'), rule('Completa', 3, 'C6EFCE', '006100'),
+      rule('A pedido', 4, 'DDEBF7', '1F4E79'), rule('Sin cotizar', 5, 'EDEDED', '595959')].map(r => ({ ...r, stopIfTrue: true })) });
+  }
+  return ws;
+}
+function xlListsSheet(wb, lists) {
+  const ws = wb.addWorksheet('Listas', { properties: { tabColor: { argb: 'FFA6A6A6' } }, views: [{ state: 'frozen', ySplit: 1 }] });
+  lists.forEach((l, i) => {
+    ws.getColumn(i + 1).width = Math.max(14, l.title.length + 4, ...l.values.map(v => String(v).length + 2));
+    const h = ws.getCell(1, i + 1); h.value = l.title; h.font = { bold: true, color: { argb: 'FFFFFFFF' }, name: 'Arial', size: 10 }; h.fill = xlFill('595959');
+    l.values.forEach((v, j) => { const c = ws.getCell(j + 2, i + 1); c.value = v; c.font = { name: 'Arial', size: 10 }; });
+  });
+  return lists.map((l, i) => `Listas!$${xlCol(i + 1)}$2:$${xlCol(i + 1)}$${l.values.length + 1}`);
+}
+function xlInstructions(wb, o) {
+  const ws = wb.addWorksheet('Instrucciones', { properties: { tabColor: { argb: 'FF' + XLC.title } }, views: [{ showGridLines: false }],
+    pageSetup: { orientation: 'portrait', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+  ws.columns = [{ width: 4 }, { width: 118 }];
+  let r = 1;
+  const line = (text, style = {}) => {
+    ws.mergeCells(`A${r}:B${r}`); const c = ws.getCell(`A${r}`); c.value = text;
+    c.font = { name: 'Arial', size: style.size || 10, bold: !!style.bold, color: { argb: 'FF' + (style.ink || XLC.ink) } };
+    if (style.fill) c.fill = xlFill(style.fill);
+    c.alignment = { vertical: 'middle', wrapText: true, indent: 1 };
+    ws.getRow(r).height = style.h || 18; r++;
+  };
+  const item = (mark, text, style = {}) => {
+    const a = ws.getCell(`A${r}`), b = ws.getCell(`B${r}`);
+    a.value = mark; b.value = text;
+    [a, b].forEach(c => { c.font = { name: 'Arial', size: 10, bold: !!style.bold, color: { argb: 'FF' + (style.ink || XLC.ink) } }; c.alignment = { vertical: 'top', wrapText: true }; if (style.fill) c.fill = xlFill(style.fill); });
+    a.alignment = { vertical: 'top', horizontal: 'center' };
+    ws.getRow(r).height = Math.max(18, Math.ceil(String(text).length / 110) * 15 + 4); r++;
+  };
+  line(o.title, { size: 15, bold: true, ink: XLC.white, fill: XLC.title, h: 30 });
+  if (o.subtitle) line(o.subtitle, { fill: 'DAE3F3', h: 20 });
+  r++;
+  line('LO IMPORTANTE', { bold: true, size: 11, ink: XLC.title });
+  item('!', 'Gastos en origen. ' + o.notes[0], { bold: true, fill: 'FCE4B6', ink: '6B4500' });
+  o.notes.slice(1).forEach(t => item('•', t));
+  r++;
+  line('CÓMO COMPLETAR', { bold: true, size: 11, ink: XLC.title });
+  o.steps.forEach((t, i) => item(String(i + 1), t));
+  r++;
+  line('QUÉ SIGNIFICA CADA COLOR', { bold: true, size: 11, ink: XLC.title });
+  [[XLC.req, 'Amarillo: dato obligatorio.'], [XLC.opt, 'Celeste: dato opcional o que depende del caso (por ejemplo, el puerto de transbordo).'],
+   [XLC.auto, 'Gris: se calcula solo. No escribir.'], ['C6EFCE', 'Columna Control en verde: la fila está completa.'], ['FFC7CE', 'Columna Control en rojo: dice qué dato falta en esa fila.']]
+    .forEach(([fill, t]) => { const a = ws.getCell(`A${r}`); a.fill = xlFill(fill); a.border = xlBorder(); const b = ws.getCell(`B${r}`); b.value = t; b.font = { name: 'Arial', size: 10 }; b.alignment = { indent: 1 }; ws.getRow(r).height = 18; r++; });
+  r++;
+  line('AL TERMINAR', { bold: true, size: 11, ink: XLC.title });
+  item('✓', o.finish);
+}
+const xlTxt = s => `"${s}"`;
+const xlIfBlank = (cell, msg) => `IF(${cell}="",${xlTxt(msg)},"")`;
+const xlControl = (startCond, parts) => `IF(${startCond},"",IF((${parts})="","Completa",${parts}))`;
+
+async function buildStyledTemplate(mode, example) {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'BIDCOM'; wb.created = new Date();
+  if (mode === 'air') buildAirStyled(wb, example); else buildSeaStyled(wb, example);
+  // Orden de solapas: Instrucciones, datos, Listas al final
+  const names = wb.worksheets.map(w => w.name);
+  ['Instrucciones', ...names.filter(n => n !== 'Instrucciones' && n !== 'Listas'), 'Listas'].forEach((n, i) => { wb.getWorksheet(n).orderNo = i; });
+  return wb.xlsx.writeBuffer();
+}
+
+function buildSeaStyled(wb, example) {
+  const S = state.settings;
+  const notes = S.notes.sea;
+  xlInstructions(wb, { title: 'Cotización marítima BIDCOM', subtitle: example ? 'EJEMPLO COMPLETO: así queda bien cargado. Usá el archivo MODELO para cotizar.' : 'Modelo para completar. Mirá el archivo EJEMPLO si tenés dudas.',
+    notes, steps: [
+      'Hoja Fletes: una fila por ruta (POL, POD, naviera y servicio). La columna Ruta ya trae un identificador (R1, R2...): usalo para vincular los gastos.',
+      'Elegí puertos, naviera, servicio, pagadero y moneda de las listas desplegables (flechita en la celda).',
+      'Cargá el flete de cada contenedor que cotizás en su columna, con sus días libres. Dejá vacío lo que no cotizás. No combines 40ST y 40HQ.',
+      'Hoja Gastos en origen: ya están los conceptos estándar para la ruta R1. Completá el importe y la unidad de cobro. Dejá vacío el importe de lo que no aplica.',
+      'Si tenés más rutas, copiá el bloque de conceptos y cambiá la columna Ruta (R2, R3...). Si cobrás un concepto que no está en la lista, escribilo y completá Descripción y Justificación.',
+      'Revisá la columna Control (gris, a la derecha) de cada hoja: tiene que quedar en verde.'],
+    finish: 'Guardá el archivo y subilo en el portal BIDCOM (Importar Excel) o envialo a BIDCOM. Antes de importar vas a ver una vista previa con cualquier dato que falte.' });
+  const refs = xlListsSheet(wb, [
+    { title: 'Puertos origen', values: ORIGIN_PORTS.map(portName) }, { title: 'Puertos destino', values: DEST_PORTS.map(portName) },
+    { title: 'Navieras', values: LINES }, { title: 'Monedas', values: Object.keys(CURRENCIES) }, { title: 'Conceptos estándar', values: CHARGES.map(c => c.name) },
+    { title: 'Unidades', values: Object.values(UNITS) }, { title: 'Servicio', values: ['Directo', 'Transbordo'] }, { title: 'Pagadero', values: ['COLLECT', 'PREPAID'] },
+    { title: 'Incoterm', values: ['FOB', 'EXW', 'FCA'] }]);
+  const [L_POL, L_POD, L_LINE, L_CUR, L_CONC, L_UNIT, L_SERV, L_PAY, L_INC] = refs;
+  const money = '#,##0.00', date = 'dd/mm/yyyy';
+  // Fletes (A..V)
+  const fCols = [
+    { h: 'Ruta', w: 7, kind: 'req', g: 'ruta', align: 'center', note: 'Identificador de la ruta (R1, R2...). Se usa en la hoja Gastos en origen.' },
+    { h: 'POL', w: 20, kind: 'req', g: 'ruta', list: L_POL, note: 'Puerto de carga. Elegí de la lista.' },
+    { h: 'POD', w: 20, kind: 'req', g: 'ruta', list: L_POD, note: 'Puerto de destino. Elegí de la lista.' },
+    { h: 'Naviera', w: 15, kind: 'req', g: 'ruta', list: L_LINE, note: 'Una sola naviera por fila. Si cotizás con dos navieras, usá dos filas.' },
+    { h: 'Servicio', w: 12, kind: 'req', g: 'ruta', list: L_SERV, note: 'Directo o Transbordo.' },
+    { h: 'Puerto transbordo', w: 16, kind: 'opt', g: 'ruta', list: L_POL, note: 'Solo si el servicio es con transbordo.' },
+    { h: 'Transit time (días)', w: 11, kind: 'req', g: 'ruta', fmt: '0', kindValid: 'number', note: 'Días de tránsito puerto a puerto.' },
+    { h: 'Pagadero', w: 11, kind: 'req', g: 'ruta', list: L_PAY },
+    { h: 'Incoterm', w: 9, kind: 'opt', g: 'ruta', list: L_INC },
+    { h: 'Validez desde', w: 12, kind: 'req', g: 'vig', fmt: date, kindValid: 'date', note: 'Formato dd/mm/aaaa.' },
+    { h: 'Validez hasta', w: 12, kind: 'req', g: 'vig', fmt: date, kindValid: 'date', note: 'Formato dd/mm/aaaa.' },
+    { h: 'Moneda', w: 8, kind: 'req', g: 'flete', list: L_CUR, align: 'center' },
+    ...CONTAINERS.map(c => ({ h: c, w: 10, kind: 'opt', g: 'flete', fmt: money, kindValid: 'number', note: `Flete ${c} por contenedor. Dejalo vacío si no cotizás este tipo.` })),
+    ...CONTAINERS.map(c => ({ h: 'Días libres ' + c, w: 10, kind: 'opt', g: 'dias', fmt: '0', kindValid: 'number', note: `Obligatorio si cotizás ${c}.` })),
+    { h: 'Comentarios', w: 28, kind: 'opt', g: 'obs', wrap: true },
+    { h: 'Control', w: 34, kind: 'auto', g: 'ctrl', wrap: true, note: 'Se calcula sola. Verde: fila completa. Rojo: dice qué falta.',
+      formula: r => xlControl(`COUNTA(B${r}:D${r},M${r}:P${r})=0`, [xlIfBlank(`B${r}`, 'Falta POL. '), xlIfBlank(`C${r}`, 'Falta POD. '), xlIfBlank(`D${r}`, 'Falta naviera. '),
+        xlIfBlank(`E${r}`, 'Falta servicio. '), `IF(AND(E${r}="Transbordo",F${r}=""),"Falta puerto de transbordo. ","")`, xlIfBlank(`G${r}`, 'Falta transit time. '),
+        xlIfBlank(`H${r}`, 'Falta pagadero. '), `IF(OR(J${r}="",K${r}=""),"Falta validez. ","")`, xlIfBlank(`L${r}`, 'Falta moneda. '),
+        `IF(COUNT(M${r}:P${r})=0,"Falta flete. ","")`,
+        ...CONTAINERS.map((c, k) => `IF(AND(${xlCol(13 + k)}${r}<>"",${xlCol(17 + k)}${r}=""),"Faltan días libres ${c}. ","")`)].join('&')) }
+  ];
+  const d = s => { const [dd, mm, yy] = s.split('/'); return new Date(Date.UTC(+yy, mm - 1, +dd, 12)); };
+  const fRows = example
+    ? [['R1', 'NINGBO', 'BUENOS AIRES', 'MSC', 'Directo', '', 40, 'COLLECT', 'FOB', d('01/10/2026'), d('15/10/2026'), 'USD', 2900, '', 3700, '', 18, '', 18, '', ''],
+       ['R2', 'SHANGHAI', 'BUENOS AIRES', 'COSCO', 'Transbordo', 'SINGAPUR', 46, 'COLLECT', 'FOB', d('01/10/2026'), d('15/10/2026'), 'USD', '', 3500, 3650, '', '', 21, 21, '', 'Transbordo en Singapur']]
+    : Array.from({ length: 10 }, (_, i) => ['R' + (i + 1), '', '', '', '', '', '', '', '', '', '', 'USD']);
+  xlDataSheet(wb, { name: 'Fletes', tab: '2E75B6', title: 'Fletes · una fila por ruta y naviera', nRows: 30, freezeCols: 1, rows: fRows, cols: fCols,
+    help: 'Amarillo: obligatorio. Celeste: opcional o según el caso. Completá el flete de cada contenedor que cotizás con sus días libres. La columna Control (a la derecha) te dice qué falta.',
+    groups: [{ key: 'ruta', label: 'RUTA Y SERVICIO', span: 9 }, { key: 'vig', label: 'VALIDEZ', span: 2 }, { key: 'flete', label: 'FLETE POR CONTENEDOR (completá los que cotizás)', span: 5 },
+             { key: 'dias', label: 'DÍAS LIBRES', span: 4 }, { key: 'obs', label: '', span: 1 }, { key: 'ctrl', label: 'CONTROL', span: 1 }] });
+  // Gastos en origen (A..H)
+  const gCols = [
+    { h: 'Ruta', w: 7, kind: 'req', g: 'gasto', align: 'center', note: 'La misma Ruta de la hoja Fletes (R1, R2...).' },
+    { h: 'Concepto', w: 26, kind: 'req', g: 'gasto', list: L_CONC, strict: false, note: 'Elegí un concepto estándar. Si es otro, escribilo y completá Descripción y Justificación.' },
+    { h: 'Moneda', w: 9, kind: 'req', g: 'gasto', list: L_CUR, align: 'center' },
+    { h: 'Importe', w: 11, kind: 'req', g: 'gasto', fmt: money, kindValid: 'number', note: 'Dejalo vacío si el concepto no aplica.' },
+    { h: 'Unidad', w: 16, kind: 'req', g: 'gasto', list: L_UNIT, note: 'Cómo se cobra: por BL, por contenedor, por CBM, etc.' },
+    { h: 'Descripción', w: 26, kind: 'opt', g: 'obs', wrap: true, note: 'Obligatoria solo para conceptos fuera de la lista.' },
+    { h: 'Justificación', w: 26, kind: 'opt', g: 'obs', wrap: true, note: 'Obligatoria solo para conceptos fuera de la lista: por qué se cobra.' },
+    { h: 'Control', w: 30, kind: 'auto', g: 'ctrl', wrap: true, note: 'Se calcula sola.',
+      formula: r => xlControl(`D${r}=""`, [xlIfBlank(`A${r}`, 'Falta ruta. '), xlIfBlank(`B${r}`, 'Falta concepto. '), xlIfBlank(`C${r}`, 'Falta moneda. '), xlIfBlank(`E${r}`, 'Falta unidad. '),
+        `IF(AND(B${r}<>"",COUNTIF(${L_CONC},B${r})=0,OR(F${r}="",G${r}="")),"Revisar: concepto adicional sin descripción o justificación. ","")`].join('&')) }
+  ];
+  const std = CHARGES.map(c => c);
+  const gRows = example
+    ? [['R1', 'Handling fee', 'USD', 80, 'Por BL'], ['R1', 'VGM / Pesada', 'USD', 40, 'Por contenedor'], ['R1', 'EIR', 'USD', 15, 'Por contenedor'],
+       ['R1', 'Seal / Precinto', 'USD', 18, 'Por contenedor'], ['R1', 'ORC / THC', 'USD', 120, 'Por contenedor'], ['R1', 'Telex release fee', 'USD', 45, 'Por BL'],
+       ['R1', 'Documentation fee', 'USD', 50, 'Por BL'], ['R2', 'Handling fee', 'USD', 85, 'Por BL'], ['R2', 'ORC / THC', 'USD', 125, 'Por contenedor'],
+       ['R2', 'Documentation fee', 'USD', 55, 'Por BL'], ['R2', 'Operational service fee', 'USD', 30, 'Por BL', 'Gestión operativa en origen', 'Coordinación con el depósito de consolidación']]
+    : std.map(c => ['R1', c.name, 'USD', '', UNITS[c.unit]]);
+  xlDataSheet(wb, { name: 'Gastos en origen', tab: 'C9A227', title: 'Gastos en origen · un concepto por fila (IMPORTANTE: base de la negociación de gastos en origen)', nRows: 60, freezeCols: 2, rows: gRows, cols: gCols,
+    help: 'Completá el importe y la unidad de cada concepto. Dejá vacío el importe de lo que no aplica. Para otra ruta, copiá el bloque y cambiá la columna Ruta. No envíes un total sin desglose.',
+    groups: [{ key: 'gasto', label: 'CONCEPTO POR CONCEPTO', span: 5 }, { key: 'obs', label: 'SOLO PARA CONCEPTOS ADICIONALES', span: 2 }, { key: 'ctrl', label: 'CONTROL', span: 1 }] });
+}
+
+function buildAirStyled(wb, example) {
+  const S = state.settings, req = state.airRequest, W = S.airRefWeight;
+  const fmtD = s => s ? s.split('-').reverse().join('/') : '';
+  xlInstructions(wb, { title: 'Tarifario aéreo semanal BIDCOM',
+    subtitle: `${example ? 'EJEMPLO COMPLETO. ' : ''}Semana ${req.week} · período ${fmtD(req.from)} al ${fmtD(req.to)} · respuesta hasta el ${fmtD(req.deadline)}`,
+    notes: S.notes.air, steps: [
+      'Hoja Tarifario: ya están las rutas que pide BIDCOM esta semana. Completá una fila por ruta. Si no cotizás una ruta, dejala vacía.',
+      `Completá el mínimo y la tarifa USD por kg de cada peso (45, 100, 300, 500 y 1000 kg). Fuel e IMO van en USD por kg.`,
+      'Si el IMO es a pedido, elegí SI en la columna IMO a pedido y dejá vacío el IMO.',
+      'Hoja Gastos en origen: ya están los conceptos de cada aeropuerto. Completá el importe y elegí la unidad: Fijo por embarque o Por kg. Si es por kg, completá el Mínimo.',
+      'Si no tenés el valor de un concepto, elegí SI en A pedido. Si cobrás un concepto que no está en la lista, agregá una fila y completá la Descripción.',
+      'Revisá la columna Control de cada hoja: tiene que quedar en verde.'],
+    finish: 'Guardá el archivo y subilo en el portal BIDCOM (Importar Excel) o envialo a BIDCOM. Antes de importar vas a ver una vista previa con cualquier dato que falte.' });
+  const refs = xlListsSheet(wb, [
+    { title: 'Aeropuertos origen', values: AIR_ORIGINS.map(apLabel) }, { title: 'Aeropuerto destino', values: [apLabel('EZE')] },
+    { title: 'Monedas', values: Object.keys(CURRENCIES) }, { title: 'Conceptos', values: AIR_CHARGES.map(c => c.name) },
+    { title: 'Unidad', values: ['Fijo por embarque', 'Por kg'] }, { title: 'SI / NO', values: ['SI', 'NO'] }]);
+  const [L_ORI, L_DST, L_CUR, L_CONC, L_UNIT, L_SN] = refs;
+  const rate = '0.00##', money = '#,##0.00';
+  // Tarifario (A..R)
+  const tCols = [
+    { h: 'Origen', w: 18, kind: 'req', g: 'ruta', list: L_ORI },
+    { h: 'Destino', w: 18, kind: 'req', g: 'ruta', list: L_DST },
+    { h: 'Aerolínea', w: 20, kind: 'req', g: 'ruta', note: 'Aerolínea habitual para esta ruta.' },
+    { h: 'Tránsito (días)', w: 9, kind: 'req', g: 'ruta', fmt: '0', kindValid: 'number' },
+    { h: 'Moneda', w: 8, kind: 'req', g: 'flete', list: L_CUR, align: 'center' },
+    { h: 'Mínimo', w: 9, kind: 'req', g: 'flete', fmt: money, kindValid: 'number', note: 'Minimum charge del flete.' },
+    ...AIR_BREAKS.map(b => ({ h: `${b} kg`, w: 8, kind: b === 45 ? 'opt' : 'req', g: 'flete', fmt: rate, kindValid: 'number', note: `Tarifa por kg para envíos desde ${b} kg. Un valor propio de esta ruta, no una fórmula a partir de otra.` })),
+    { h: 'Fuel USD/kg', w: 9, kind: 'req', g: 'dias', fmt: rate, kindValid: 'number' },
+    { h: 'IMO USD/kg', w: 9, kind: 'opt', g: 'dias', fmt: rate, kindValid: 'number', note: 'Dejalo vacío si el IMO es a pedido.' },
+    { h: 'IMO a pedido', w: 9, kind: 'opt', g: 'dias', list: L_SN, align: 'center', note: 'SI si el IMO se cotiza a pedido. No se suma al all-in.' },
+    { h: 'Gastos destino USD', w: 11, kind: 'req', g: 'obs', fmt: money, kindValid: 'number', note: 'Estimado típico por embarque en destino.' },
+    { h: 'Vigencia hasta', w: 12, kind: 'req', g: 'obs', fmt: 'dd/mm/yyyy', kindValid: 'date', note: 'Formato dd/mm/aaaa.' },
+    { h: 'Observaciones', w: 28, kind: 'opt', g: 'obs', wrap: true },
+    { h: 'Control', w: 34, kind: 'auto', g: 'ctrl', wrap: true, note: 'Se calcula sola. Verde: fila completa. Rojo: dice qué falta.',
+      formula: r => `IF(COUNTA(C${r},F${r}:K${r})=0,IF(A${r}="","","Sin cotizar"),IF((${[xlIfBlank(`A${r}`, 'Falta origen. '), xlIfBlank(`C${r}`, 'Falta aerolínea. '), xlIfBlank(`D${r}`, 'Falta tránsito. '),
+        xlIfBlank(`E${r}`, 'Falta moneda. '), xlIfBlank(`F${r}`, 'Falta mínimo. '), ...['H', 'I', 'J', 'K'].map((c, k) => xlIfBlank(`${c}${r}`, `Falta ${[100, 300, 500, 1000][k]} kg. `)),
+        xlIfBlank(`L${r}`, 'Falta fuel. '), `IF(AND(M${r}="",N${r}<>"SI"),"Falta IMO (o SI en IMO a pedido). ","")`, xlIfBlank(`O${r}`, 'Faltan gastos destino. '), xlIfBlank(`P${r}`, 'Falta vigencia. ')].join('&')})="","Completa",${[xlIfBlank(`A${r}`, 'Falta origen. '), xlIfBlank(`C${r}`, 'Falta aerolínea. '), xlIfBlank(`D${r}`, 'Falta tránsito. '),
+        xlIfBlank(`E${r}`, 'Falta moneda. '), xlIfBlank(`F${r}`, 'Falta mínimo. '), ...['H', 'I', 'J', 'K'].map((c, k) => xlIfBlank(`${c}${r}`, `Falta ${[100, 300, 500, 1000][k]} kg. `)),
+        xlIfBlank(`L${r}`, 'Falta fuel. '), `IF(AND(M${r}="",N${r}<>"SI"),"Falta IMO (o SI en IMO a pedido). ","")`, xlIfBlank(`O${r}`, 'Faltan gastos destino. '), xlIfBlank(`P${r}`, 'Falta vigencia. ')].join('&')}))` }
+  ];
+  const vt = (() => { const [y, m, dd] = req.to.split('-'); return new Date(Date.UTC(+y, m - 1, +dd, 12)); })();
+  const routes = req.routes.filter(r => r.on).map(r => r.origin);
+  const tRows = example
+    ? [[apLabel('MIA'), apLabel('EZE'), 'Aerolínea Demo 1', 2, 'USD', 160, 3.7, 3.4, 3.15, 2.9, 2.65, 0.16, '', 'SI', 340, vt, 'Vuelo directo'],
+       [apLabel('PVG'), apLabel('EZE'), 'Aerolínea Demo 3', 6, 'USD', 200, 10.6, 9.5, 9.3, 9.0, 8.85, 0.12, 0.05, 'NO', 340, vt, 'Vía Doha']]
+    : routes.map(o => [apLabel(o), apLabel('EZE'), '', '', 'USD', '', '', '', '', '', '', '', '', 'NO', '', vt]);
+  xlDataSheet(wb, { name: 'Tarifario', tab: '2E75B6', title: `Tarifario aéreo · semana ${req.week} · una fila por ruta`, nRows: Math.max(12, tRows.length + 4), freezeCols: 1, rows: tRows, cols: tCols,
+    help: `Amarillo: obligatorio. Celeste: opcional. Tarifas en USD por kg. BIDCOM compara el all-in por kg a ${W} kg (flete + fuel + IMO + gastos en origen + gastos destino). La columna Control te dice qué falta.`,
+    groups: [{ key: 'ruta', label: 'RUTA', span: 4 }, { key: 'flete', label: 'FLETE: MÍNIMO Y TARIFA USD POR KG SEGÚN PESO', span: 7 }, { key: 'dias', label: 'RECARGOS USD/KG', span: 3 },
+             { key: 'obs', label: 'DESTINO Y VIGENCIA', span: 3 }, { key: 'ctrl', label: 'CONTROL', span: 1 }] });
+  // Gastos en origen (A..I)
+  const gCols = [
+    { h: 'Aeropuerto', w: 18, kind: 'req', g: 'gasto', list: L_ORI },
+    { h: 'Concepto', w: 18, kind: 'req', g: 'gasto', list: L_CONC, strict: false, note: 'Si es un concepto fuera de la lista, escribilo y completá la Descripción.' },
+    { h: 'Moneda', w: 8, kind: 'req', g: 'gasto', list: L_CUR, align: 'center' },
+    { h: 'Importe', w: 10, kind: 'req', g: 'gasto', fmt: '#,##0.00##', kindValid: 'number', note: 'Si es Por kg, la tarifa por kg (ej. 0,15).' },
+    { h: 'Unidad', w: 17, kind: 'req', g: 'gasto', list: L_UNIT },
+    { h: 'Mínimo', w: 9, kind: 'opt', g: 'gasto', fmt: money, kindValid: 'number', note: 'Obligatorio si la unidad es Por kg (ej. mínimo USD 55).' },
+    { h: 'A pedido', w: 9, kind: 'opt', g: 'gasto', list: L_SN, align: 'center', note: 'SI si no tenés el valor. No se suma al all-in.' },
+    { h: 'Descripción', w: 26, kind: 'opt', g: 'obs', wrap: true },
+    { h: 'Control', w: 30, kind: 'auto', g: 'ctrl', wrap: true, note: 'Se calcula sola.',
+      formula: r => `IF(G${r}="SI","A pedido",IF(D${r}="","",IF((${[xlIfBlank(`A${r}`, 'Falta aeropuerto. '), xlIfBlank(`C${r}`, 'Falta moneda. '), xlIfBlank(`E${r}`, 'Falta unidad. '), `IF(AND(E${r}="Por kg",F${r}=""),"Falta mínimo. ","")`,
+        `IF(AND(B${r}<>"",COUNTIF(${L_CONC},B${r})=0,H${r}=""),"Revisar: concepto adicional sin descripción. ","")`].join('&')})="","Completa",${[xlIfBlank(`A${r}`, 'Falta aeropuerto. '), xlIfBlank(`C${r}`, 'Falta moneda. '), xlIfBlank(`E${r}`, 'Falta unidad. '), `IF(AND(E${r}="Por kg",F${r}=""),"Falta mínimo. ","")`,
+        `IF(AND(B${r}<>"",COUNTIF(${L_CONC},B${r})=0,H${r}=""),"Revisar: concepto adicional sin descripción. ","")`].join('&')})))` }
+  ];
+  const gRows = example
+    ? [[apLabel('MIA'), 'Pick up', 'USD', 70, 'Fijo por embarque', '', 'NO'], [apLabel('MIA'), 'Export customs', 'USD', 45, 'Fijo por embarque', '', 'NO'],
+       [apLabel('MIA'), 'Handling', 'USD', 55, 'Fijo por embarque', '', 'NO'], [apLabel('MIA'), 'Documentation', 'USD', 55, 'Fijo por embarque', '', 'NO'],
+       [apLabel('MIA'), 'Warehouse', 'USD', 0.15, 'Por kg', 55, 'NO'], [apLabel('MIA'), 'Security', 'USD', 0.15, 'Por kg', 35, 'NO'],
+       [apLabel('PVG'), 'Pick up', '', '', '', '', 'SI', 'Según dirección de retiro'], [apLabel('PVG'), 'Export customs', 'USD', 55, 'Fijo por embarque', '', 'NO'],
+       [apLabel('PVG'), 'Handling', 'USD', 55, 'Fijo por embarque', '', 'NO'], [apLabel('PVG'), 'Documentation', 'USD', 65, 'Fijo por embarque', '', 'NO'],
+       [apLabel('PVG'), 'Warehouse', 'USD', 55, 'Fijo por embarque', '', 'NO'], [apLabel('PVG'), 'Security', 'USD', 35, 'Fijo por embarque', '', 'NO']]
+    : routes.flatMap(o => AIR_CHARGES.map(c => [apLabel(o), c.name, 'USD', '', 'Fijo por embarque', '', 'NO']));
+  xlDataSheet(wb, { name: 'Gastos en origen', tab: 'C9A227', title: 'Gastos en origen por aeropuerto · un concepto por fila (IMPORTANTE: base de la negociación de gastos en origen)',
+    nRows: gRows.length + 12, freezeCols: 2, rows: gRows, cols: gCols,
+    help: 'Completá cada concepto de cada aeropuerto. Unidad: Fijo por embarque, o Por kg con su mínimo. Si no tenés el valor, elegí SI en A pedido. No envíes un total sin desglose.',
+    groups: [{ key: 'gasto', label: 'CONCEPTO POR CONCEPTO', span: 7 }, { key: 'obs', label: 'CONCEPTOS ADICIONALES', span: 1 }, { key: 'ctrl', label: 'CONTROL', span: 1 }] });
 }
 
 // ---- Vistas aéreas: agente ----
