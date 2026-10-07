@@ -11,7 +11,12 @@ Portal de cotizaciones de logística internacional (marítimo y aéreo): los age
 | `index.html` | Prototipo navegable. Se abre directo en el navegador o publicado con GitHub Pages. |
 | `modelos/` | Modelo en blanco y ejemplo completo para agentes (marítimo y aéreo). |
 | `supabase/migrations/` | Base de datos PostgreSQL/Supabase: tablas, catálogos, seguridad por agente, auditoría, motor de históricos y módulo aéreo. |
+| `google-sheets/` | Formulario por link para agentes y pegado automático en la base madre (Apps Script para la planilla de Google). |
 | `supabase/tests/` | Pruebas: aislamiento entre agentes, versiones inmutables, cálculo del all-in aéreo. |
+
+## Dónde ver los cambios
+
+Todo se ve en **https://solp-boop.github.io/tarifador-bidcom/**. Arriba a la izquierda está el número de versión y la sección **Novedades** lista qué cambió.
 
 ## Cómo usar el prototipo
 

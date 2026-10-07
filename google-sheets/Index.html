@@ -6,6 +6,10 @@
 <style>
   :root { --bg:#f4f6f8; --surface:#fff; --sunken:#eef1f4; --line:#d9dfe5; --ink:#15212e; --muted:#5b6876; --accent:#0b5f8a; --accent-soft:#e2eef5;
           --ok:#1d7a46; --ok-soft:#e1f2e8; --warn:#9a6b00; --warn-soft:#fbf0d2; --bad:#b3261e; --bad-soft:#f9dedc; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#0f151c; --surface:#16202a; --sunken:#1c2833; --line:#2b3946; --ink:#e5ebf0; --muted:#98a6b3; --accent:#5fb4e0; --accent-soft:#15344a;
+    --ok:#5cc98a; --ok-soft:#133524; --warn:#e2b54a; --warn-soft:#3a2f10; --bad:#f28b82; --bad-soft:#3f1a18; color-scheme: dark; } }
+  :root[data-theme="dark"] { --bg:#0f151c; --surface:#16202a; --sunken:#1c2833; --line:#2b3946; --ink:#e5ebf0; --muted:#98a6b3; --accent:#5fb4e0; --accent-soft:#15344a;
+    --ok:#5cc98a; --ok-soft:#133524; --warn:#e2b54a; --warn-soft:#3a2f10; --bad:#f28b82; --bad-soft:#3f1a18; color-scheme: dark; }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 Arial, Helvetica, sans-serif; }
   .wrap { max-width: 1100px; margin: 0 auto; padding: 20px 16px 60px; display: flex; flex-direction: column; gap: 16px; }
@@ -15,19 +19,19 @@
   .muted { color: var(--muted); } .small { font-size: 12.5px; }
   .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
   .alert { border-radius: 8px; padding: 12px 14px; border: 1px solid; }
-  .alert.warn { background: var(--warn-soft); border-color: #e6cf8f; } .alert.bad { background: var(--bad-soft); border-color: #eab3ae; } .alert.ok { background: var(--ok-soft); border-color: #a9d8bb; }
+  .alert.warn { background: var(--warn-soft); border-color: var(--warn); } .alert.bad { background: var(--bad-soft); border-color: var(--bad); } .alert.ok { background: var(--ok-soft); border-color: var(--ok); }
   .alert ul, ul.notes { margin: 6px 0 0; padding-left: 18px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
   label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
-  input, select { font: inherit; color: var(--ink); background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; width: 100%; min-width: 0; }
+  input, select { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; width: 100%; min-width: 0; }
   input.bad { border-color: var(--bad); background: var(--bad-soft); }
   input[type=checkbox] { width: auto; }
   .route { border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
   .route-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: baseline; }
   .allin { font-size: 13px; } .allin b { font-variant-numeric: tabular-nums; }
   .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
-  .tab { font: inherit; font-size: 13px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: #fff; cursor: pointer; }
-  .tab[aria-pressed=true] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .tab { font: inherit; font-size: 13px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink); cursor: pointer; }
+  .tab[aria-pressed=true] { background: var(--accent); color: var(--bg); border-color: var(--accent); }
   .tab.missing { border-color: var(--bad); }
   .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
   table { border-collapse: collapse; width: 100%; } th, td { padding: 7px 9px; border-bottom: 1px solid var(--line); text-align: left; }
@@ -36,23 +40,35 @@
   .layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 16px; align-items: start; }
   aside { position: sticky; top: 12px; }
   @media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } aside { position: static; } }
-  .btn { font: inherit; font-weight: 700; border-radius: 6px; padding: 10px 16px; border: 1px solid var(--line); background: #fff; cursor: pointer; }
-  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; width: 100%; }
+  .btn { font: inherit; font-weight: 700; border-radius: 6px; padding: 10px 16px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); width: 100%; }
   .btn:disabled { opacity: .55; cursor: wait; }
   .btn:focus-visible, input:focus-visible, select:focus-visible, .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .check li { margin-bottom: 4px; } .done { color: var(--ok); font-weight: 700; }
-  .origin { border-color: #e6cf8f; }
+  .origin { border-color: var(--warn); }
+  .tema { display: inline-flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--muted); }
+  .tema select { width: auto; padding: 4px 6px; }
+  .motivo { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+  .motivo label { flex-direction: row; gap: 8px; align-items: flex-start; color: var(--ink); font-size: 13px; border: 1px solid var(--line); border-radius: 6px; padding: 8px; cursor: pointer; }
+  .motivo label.sel { border-color: var(--accent); background: var(--accent-soft); }
+  .tipo { font-size: 11.5px; font-weight: 700; border-radius: 999px; padding: 2px 8px; background: var(--accent-soft); color: var(--accent); }
+  .tipo.neg { background: var(--ok-soft); color: var(--ok); }
   .badge { font-size: 11.5px; font-weight: 700; background: var(--warn-soft); color: var(--warn); border-radius: 999px; padding: 2px 8px; margin-left: 6px; }
 </style>
 </head>
 <body>
-<header class="top"><div class="in"><h1>Tarifario aéreo BIDCOM</h1><span class="muted" id="who"></span></div></header>
+<header class="top"><div class="in"><h1>Tarifario aéreo BIDCOM</h1><span style="display:flex;gap:16px;align-items:center;flex-wrap:wrap"><span class="muted" id="who"></span>
+  <label class="tema" for="tema">Tema <select id="tema"><option value="auto">Automático</option><option value="light">Claro</option><option value="dark">Oscuro</option></select></label></span></div></header>
 <div class="wrap" id="app"></div>
 
 <script>
 var D = <?!= datos ?>;
 var CLAVE = '<?!= clave ?>';
-var S = D.solicitud, form = nuevoFormulario(), tab = S.rutas.length ? S.rutas[0].origen : '', enviando = false, resultado = null;
+var S = D.solicitud, form = nuevoFormulario(), tab = S.rutas.length ? S.rutas[0].origen : '', enviando = false, resultado = null, motivo = '';
+// Tema claro / oscuro: lo elige cada persona y se recuerda en su navegador
+function aplicarTema(t) { if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); else document.documentElement.removeAttribute('data-theme'); }
+(function () { var t = 'auto'; try { t = localStorage.getItem('bidcom-tema') || 'auto'; } catch (e) {} aplicarTema(t); var sel = document.getElementById('tema'); sel.value = t;
+  sel.onchange = function () { aplicarTema(sel.value); try { localStorage.setItem('bidcom-tema', sel.value); } catch (e) {} }; })();
 
 function nuevoFormulario() {
   var base = D.ultimo, f = { rutas: [], gastos: {} };
@@ -124,11 +140,11 @@ function render() {
       var falta = !(form.gastos[r.origen] || []).some(function (c) { return c.pedido || !vacio(c.importe); });
       return '<button type="button" class="tab' + (falta ? ' missing' : '') + '" data-tab="' + esc(r.origen) + '" aria-pressed="' + (tab === r.origen) + '">' + esc(r.origen) + '</button>'; }).join('') + '</div>' +
     gastosHTML(tab) + '</section>';
-  html += '</div><aside class="panel"><h2>Antes de enviar</h2><div id="check">' + checkHTML(errs) + '</div>' +
+  html += '</div><aside class="panel"><h2>Antes de enviar</h2><div id="check">' + checkHTML(errs) + '</div>' + tipoHTML() +
     '<button class="btn primary" id="enviar" ' + (enviando ? 'disabled' : '') + '>' + (enviando ? 'Enviando…' : (D.ultimo ? 'Enviar nueva versión' : 'Enviar a BIDCOM')) + '</button>' +
     '<p class="small muted">Si después necesitás corregir algo, volvé a entrar con tu link y enviá de nuevo: queda una nueva versión.</p></aside></div>';
-  if (D.envios.length) html += '<section class="panel"><h2>Mis envíos</h2><div class="tablewrap"><table><thead><tr><th>Semana</th><th>Versión</th><th>Enviado</th><th>Rutas</th></tr></thead><tbody>' +
-    D.envios.map(function (e) { return '<tr><td>' + esc(e.semana) + '</td><td>v' + esc(e.version) + '</td><td>' + esc(e.recibido) + '</td><td>' + esc(e.rutas) + '</td></tr>'; }).join('') + '</tbody></table></div></section>';
+  if (D.envios.length) html += '<section class="panel"><h2>Mis envíos</h2><div class="tablewrap"><table><thead><tr><th>Semana</th><th>Versión</th><th>Tipo de tarifa</th><th>Enviado</th><th>Rutas</th></tr></thead><tbody>' +
+    D.envios.map(function (e) { return '<tr><td>' + esc(e.semana) + '</td><td>v' + esc(e.version) + '</td><td><span class="tipo' + (e.tipo === 'Negociada' ? ' neg' : '') + '">' + esc(e.tipo || 'Inicial') + '</span>' + (e.motivo === 'Corrección' ? ' <span class="muted small">corrección</span>' : '') + '</td><td>' + esc(e.recibido) + '</td><td>' + esc(e.rutas) + '</td></tr>'; }).join('') + '</tbody></table></div></section>';
   document.getElementById('app').innerHTML = html;
   bind();
 }
@@ -148,6 +164,13 @@ function rutaHTML(r, i) {
     '<label>Gastos destino (USD)' + inp('destino_usd', r.destino_usd, isNaN(n(r.destino_usd)), '0.01', 'Gastos destino') + '</label>' +
     '<label>Vigencia hasta<input type="date" data-r="' + i + '" data-k="vigencia" value="' + esc(r.vigencia) + '" class="' + (r.vigencia ? '' : 'bad') + '"></label></div>' +
     '<label>Observaciones<input data-r="' + i + '" data-k="obs" value="' + esc(r.obs) + '"></label></div>';
+}
+function tipoHTML() {
+  if (!D.ultimo) return '<p class="small" style="margin:12px 0">Este envío se registra como <span class="tipo">Tarifa inicial</span></p>';
+  var opc = [['correccion', 'Corrijo un error de mi envío anterior', 'Reemplaza tu envío anterior (sigue siendo tu ' + (D.ultimo.tipo === 'Negociada' ? 'tarifa negociada' : 'tarifa inicial') + ').'],
+             ['negociada', 'Es una tarifa mejorada (negociada con BIDCOM)', 'Se registra como tarifa negociada. Tu tarifa inicial queda guardada.']];
+  return '<div class="motivo" role="radiogroup" aria-label="Motivo del envío"><b class="small">Ya enviaste esta semana. ¿Qué es este envío?</b>' + opc.map(function (o) {
+    return '<label class="' + (motivo === o[0] ? 'sel' : '') + '"><input type="radio" name="motivo" value="' + o[0] + '" ' + (motivo === o[0] ? 'checked' : '') + '><span><b>' + o[1] + '</b><br><span class="muted small">' + o[2] + '</span></span></label>'; }).join('') + '</div>';
 }
 function allinTxt(a) { return isNaN(a) ? '<span class="muted small">All-in: completá la ruta para calcularlo</span>' : 'All-in estimado a ' + S.peso + ' kg: <b>USD ' + fmt(a) + '/kg</b>'; }
 function gastosHTML(origen) {
@@ -190,14 +213,16 @@ function bind() {
     });
   });
   document.querySelectorAll('[data-tab]').forEach(function (b) { b.onclick = function () { tab = b.getAttribute('data-tab'); render(); }; });
+  document.querySelectorAll('input[name=motivo]').forEach(function (el) { el.onchange = function () { motivo = el.value; render(); }; });
   var otro = document.getElementById('otro'); if (otro) otro.onclick = function () { form.gastos[tab].push({ concepto: 'Otro', importe: '', unidad: 'Fijo por embarque', minimo: '', pedido: false, descripcion: '' }); render(); };
   document.getElementById('enviar').onclick = enviar;
 }
 function enviar() {
   var errs = errores();
   if (errs.length) { document.getElementById('check').innerHTML = '<div class="alert bad"><b>Todavía faltan datos.</b></div>' + checkHTML(errs); return; }
+  if (D.ultimo && !motivo) { document.getElementById('check').innerHTML = '<div class="alert bad"><b>Indicá qué es este envío:</b> una corrección o una tarifa mejorada.</div>'; return; }
   enviando = true; render();
-  var payload = JSON.parse(JSON.stringify(form));
+  var payload = JSON.parse(JSON.stringify(form)); payload.motivo = motivo;
   payload.gastos = {};
   form.rutas.forEach(function (r) { payload.gastos[r.origen] = form.gastos[r.origen].map(function (c) { return { concepto: D.conceptos.indexOf(c.concepto) < 0 ? 'Otro: ' + (c.descripcion || '') : c.concepto, importe: c.importe, unidad: c.unidad, minimo: c.minimo, pedido: c.pedido, descripcion: c.descripcion || '' }; }); });
   google.script.run
@@ -211,7 +236,7 @@ function enviar() {
 }
 function renderOk() {
   document.getElementById('app').innerHTML = '<section class="panel"><div class="alert ok"><h2 style="margin:0 0 6px">Recibimos tu tarifario</h2>' +
-    '<p>Semana ' + esc(S.semana) + ', versión ' + esc(resultado.version) + ' (código ' + esc(resultado.id) + '). Gracias.</p></div>' +
+    '<p>Semana ' + esc(S.semana) + ', versión ' + esc(resultado.version) + ', registrada como <b>tarifa ' + esc(String(resultado.tipo || 'Inicial').toLowerCase()) + '</b> (código ' + esc(resultado.id) + '). Gracias.</p></div>' +
     '<p class="small muted" style="margin-top:12px">Si necesitás corregir algo, volvé a entrar con tu link: tu envío aparece precargado y podés mandar una nueva versión.</p></section>';
 }
 render();

@@ -16,8 +16,11 @@ var HOJA = {
   GASTOS: 'Gastos en origen aéreo (envíos)',
   COMPARATIVO: 'Comparativo aéreo',
   REGISTRO: 'Registro',
-  CONFIG: 'Configuración'
+  CONFIG: 'Configuración',
+  NEGOCIACION: 'Negociación aérea'
 };
+var TIPOS = { INICIAL: 'Inicial', NEGOCIADA: 'Negociada' };
+var MOTIVOS = { primero: 'Primer envío', correccion: 'Corrección', negociada: 'Mejora negociada' };
 
 var BREAKS = [45, 100, 300, 500, 1000];
 var CONCEPTOS = ['Pick up', 'Export customs', 'Handling', 'Documentation', 'Warehouse', 'Security'];
@@ -26,9 +29,10 @@ var UNIDADES = ['Fijo por embarque', 'Por kg'];
 // Columnas de la pestaña de tarifas (1 = A)
 var COLS_TARIFAS = ['ID envío', 'Recibido', 'Week ID', 'Agente', 'Versión', 'Vigente', 'Origen', 'Destino', 'Aerolínea',
   'Tránsito (días)', 'Moneda', 'Mínimo', '45 kg', '100 kg', '300 kg', '500 kg', '1000 kg', 'Fuel USD/kg', 'IMO USD/kg',
-  'IMO a pedido', 'Gastos origen USD (al peso ref.)', 'Gastos destino USD', 'Vigencia hasta', 'All-in USD/kg', 'Observaciones'];
+  'IMO a pedido', 'Gastos origen USD (al peso ref.)', 'Gastos destino USD', 'Vigencia hasta', 'All-in USD/kg', 'Observaciones',
+  'Tipo de tarifa', 'Motivo del envío'];
 var COLS_GASTOS = ['ID envío', 'Recibido', 'Week ID', 'Agente', 'Aeropuerto', 'Concepto', 'Moneda', 'Importe', 'Unidad',
-  'Mínimo', 'A pedido', 'Descripción', 'Vigente', 'Importe al peso ref. USD'];
+  'Mínimo', 'A pedido', 'Descripción', 'Vigente', 'Importe al peso ref. USD', 'Tipo de tarifa'];
 
 /* ------------------------------------------------------------------ */
 /* Menú                                                                */
@@ -40,6 +44,7 @@ function onOpen() {
     .addItem('3. Verificar la base madre', 'verificarBaseMadre')
     .addSeparator()
     .addItem('Pasar la semana actual a la base madre', 'pasarSemanaABaseMadre')
+    .addItem('Actualizar la pestaña Negociación aérea', 'actualizarNegociacionMenu')
     .addItem('Ir al comparativo', 'irAlComparativo')
     .addToUi();
 }
@@ -142,7 +147,7 @@ function prepararHojas() {
       ['Pestaña de destino (aéreo)', '', 'Nombre exacto de la pestaña donde hoy pegás los tarifarios de los agentes.'],
       ['Pegar automáticamente al recibir', 'SI', 'NO = solo se guarda en las pestañas de envíos; se pasa a mano con el menú.'],
       ['IMO a pedido se escribe como', 'Upon RQST', 'Texto que se pone en la columna de IMO cuando el agente lo marca a pedido.'],
-      ['Si el agente manda una versión nueva', 'Reemplazar la fila anterior', 'Reemplazar = una fila por agente, semana y ruta. Agregar = queda una fila por versión.']]);
+      ['Si el agente corrige un envío', 'Reemplazar la fila anterior', 'Reemplazar = la corrección pisa la fila con error. Agregar = queda una fila por cada envío.']]);
     k.getRange('A4:A8').setFontWeight('bold');
     k.getRange('B4:B8').setBackground('#FFF2CC');
     k.getRange('B6').setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['SI', 'NO'], true).build());
@@ -150,6 +155,19 @@ function prepararHojas() {
     k.getRange('A10').setValue('Después de completar, usá el menú Tarifador BIDCOM > 3. Verificar la base madre para ver qué columnas se van a completar.');
     k.setColumnWidth(1, 280); k.setColumnWidth(2, 360); k.setColumnWidth(3, 560);
     creadas.push(HOJA.CONFIG);
+  }
+
+  if (!ss.getSheetByName(HOJA.NEGOCIACION)) {
+    ss.insertSheet(HOJA.NEGOCIACION); armarNegociacion();
+    creadas.push(HOJA.NEGOCIACION);
+  }
+  asegurarEncabezados(ss.getSheetByName(HOJA.TARIFAS), COLS_TARIFAS);
+  asegurarEncabezados(ss.getSheetByName(HOJA.GASTOS), COLS_GASTOS);
+  var conf = ss.getSheetByName(HOJA.CONFIG);
+  if (conf && !String(conf.getRange('A9').getValue()).trim()) {
+    conf.getRange(9, 1, 1, 3).setValues([['Pestaña para tarifas negociadas (aéreo)', '', 'Vacío = la misma pestaña. Si tu base madre tiene una pestaña aparte para negociadas, escribí su nombre.']]);
+    conf.getRange('A9').setFontWeight('bold'); conf.getRange('B9').setBackground('#FFF2CC');
+    conf.getRange('A11').setValue('Si usás una sola pestaña, conviene que tenga una columna "Tipo de tarifa": ahí se escribe Inicial o Negociada y las dos filas quedan. Si no la tiene, la negociada se agrega como fila nueva y en Observaciones dice "Tarifa negociada".');
   }
 
   if (!ss.getSheetByName(HOJA.REGISTRO)) {
@@ -290,7 +308,7 @@ function datosParaAgente(agente) {
   var envios = enviosDelAgente(agente.nombre);
   var ultimo = envios.filter(function (e) { return e.semana === sol.semana; })[0] || null;
   return { agente: agente.nombre, solicitud: sol, breaks: BREAKS, conceptos: CONCEPTOS, unidades: UNIDADES,
-           envios: envios.map(function (e) { return { semana: e.semana, version: e.version, recibido: e.recibido, rutas: e.rutas.length }; }),
+           envios: envios.map(function (e) { return { semana: e.semana, version: e.version, recibido: e.recibido, rutas: e.rutas.length, tipo: e.tipo, motivo: e.motivo }; }),
            ultimo: ultimo };
 }
 
@@ -302,7 +320,7 @@ function enviosDelAgente(nombre) {
   for (var i = 1; i < t.length; i++) {
     if (t[i][3] !== nombre) continue;
     var id = t[i][0];
-    if (!porId[id]) porId[id] = { id: id, recibido: fechaHora(t[i][1]), semana: t[i][2], version: t[i][4], rutas: [], gastos: {} };
+    if (!porId[id]) porId[id] = { id: id, recibido: fechaHora(t[i][1]), semana: t[i][2], version: t[i][4], tipo: t[i][25] || TIPOS.INICIAL, motivo: t[i][26] || '', rutas: [], gastos: {} };
     porId[id].rutas.push({ origen: t[i][6], destino: t[i][7], aerolinea: t[i][8], transito: t[i][9], minimo: t[i][11],
       tarifas: { 45: t[i][12], 100: t[i][13], 300: t[i][14], 500: t[i][15], 1000: t[i][16] }, fuel: t[i][17], imo: t[i][18],
       imoPedido: t[i][19] === 'SI', destino_usd: t[i][21], vigencia: fecha(t[i][22]), obs: t[i][24] });
@@ -337,6 +355,12 @@ function enviarTarifario(clave, envio) {
       if (datosT[i][3] === agente.nombre && datosT[i][2] === sol.semana) { ids[datosT[i][0]] = true; if (datosT[i][5] === 'SI') t.getRange(i + 1, 6).setValue('NO'); }
     }
     var version = Object.keys(ids).length + 1;
+    // Tipo de tarifa: el primer envío de la semana es la inicial. Después, el agente indica si corrige o si manda una mejora negociada.
+    var ultimoTipo = TIPOS.INICIAL;
+    for (var u = datosT.length - 1; u >= 1; u--) { if (datosT[u][3] === agente.nombre && datosT[u][2] === sol.semana) { ultimoTipo = datosT[u][25] || TIPOS.INICIAL; break; } }
+    var motivo = version === 1 ? 'primero' : envio.motivo;
+    if (version > 1 && !MOTIVOS[motivo]) return { ok: false, errores: ['Indicá si este envío corrige un error o es una tarifa mejorada.'] };
+    var tipo = motivo === 'negociada' ? TIPOS.NEGOCIADA : motivo === 'correccion' ? ultimoTipo : TIPOS.INICIAL;
     var datosG = g.getDataRange().getValues();
     for (var j = 1; j < datosG.length; j++) {
       if (datosG[j][3] === agente.nombre && datosG[j][2] === sol.semana && datosG[j][12] === 'SI') g.getRange(j + 1, 13).setValue('NO');
@@ -353,7 +377,7 @@ function enviarTarifario(clave, envio) {
         '=SUMIFS(' + G + '!N:N,' + G + '!A:A,A' + f + ',' + G + '!E:E,G' + f + ')',
         num(r.destino_usd), aFecha(r.vigencia),
         '=IF(P' + f + '="","",(MAX(L' + f + ',' + tarifaPeso + '*' + S + ')+(R' + f + '+IF(T' + f + '="SI",0,N(S' + f + ')))*' + S + '+U' + f + '+V' + f + ')/' + S + ')',
-        r.obs || ''];
+        r.obs || '', tipo, MOTIVOS[motivo]];
     });
     t.getRange(filaT, 1, filasT.length, COLS_TARIFAS.length).setValues(filasT);
 
@@ -364,19 +388,19 @@ function enviarTarifario(clave, envio) {
         var f = filaG + filasG.length;
         filasG.push([id, ahora, sol.semana, agente.nombre, r.origen, c.concepto, 'USD', c.pedido ? '' : num(c.importe), c.pedido ? '' : c.unidad,
           c.unidad === 'Por kg' && !c.pedido ? num(c.minimo) : '', c.pedido ? 'SI' : 'NO', c.descripcion || '', 'SI',
-          '=IF(K' + f + '="SI",0,IF(I' + f + '="Por kg",MAX(N(J' + f + '),H' + f + '*' + S + '),N(H' + f + ')))']);
+          '=IF(K' + f + '="SI",0,IF(I' + f + '="Por kg",MAX(N(J' + f + '),H' + f + '*' + S + '),N(H' + f + ')))', tipo]);
       });
     });
     if (filasG.length) g.getRange(filaG, 1, filasG.length, COLS_GASTOS.length).setValues(filasG);
 
-    registrar(agente.nombre, 'Envió tarifario ' + sol.semana + ' (versión ' + version + ')', envio.rutas.length + ' ruta(s), ' + filasG.length + ' gasto(s) en origen. ID ' + id);
+    registrar(agente.nombre, 'Envió tarifario ' + sol.semana + ' (versión ' + version + ', ' + tipo.toLowerCase() + (motivo === 'correccion' ? ', corrección' : '') + ')', envio.rutas.length + ' ruta(s), ' + filasG.length + ' gasto(s) en origen. ID ' + id);
     SpreadsheetApp.flush();
     // Pegado en la base madre: si falla, el envío igual queda guardado y el error va al Registro
     try {
       var cfg = leerConfig();
       if (cfg.auto) {
         pegarEnBaseMadre(envio.rutas.map(function (r) {
-          return { semana: sol.semana, agente: agente.nombre, version: version, recibido: ahora, origen: r.origen, destino: r.destino, aerolinea: r.aerolinea,
+          return { semana: sol.semana, agente: agente.nombre, version: version, recibido: ahora, tipo: tipo, motivo: MOTIVOS[motivo], origen: r.origen, destino: r.destino, aerolinea: r.aerolinea,
             transito: num(r.transito), minimo: num(r.minimo), tarifas: r.tarifas, fuel: num(r.fuel), imo: r.imoPedido ? '' : num(r.imo), imoPedido: !!r.imoPedido,
             destino_usd: num(r.destino_usd), vigencia: aFecha(r.vigencia), obs: r.obs || '',
             gastos: (envio.gastos[r.origen] || []).map(function (c) { return { importe: num(c.importe), unidad: c.unidad, minimo: num(c.minimo), pedido: !!c.pedido }; }) };
@@ -385,7 +409,8 @@ function enviarTarifario(clave, envio) {
     } catch (err) {
       registrar('BIDCOM', 'Error al pegar en la base madre', String(err && err.message || err));
     }
-    return { ok: true, version: version, id: id, envios: datosParaAgente(agente).envios };
+    try { actualizarNegociacion(); } catch (err2) { registrar('BIDCOM', 'Error al actualizar Negociación aérea', String(err2 && err2.message || err2)); }
+    return { ok: true, version: version, id: id, tipo: tipo, envios: datosParaAgente(agente).envios };
   } finally {
     lock.releaseLock();
   }
@@ -467,11 +492,12 @@ var MAPA_AEREO = [
   ['allin', ['ALL-IN', 'ALL IN', 'ALLIN'], true],
   ['obs', ['OBSERVACIONES', 'COMENTARIOS', 'REMARKS', 'OBS']],
   ['version', ['VERSION']],
-  ['recibido', ['FECHA RECEPCION', 'FECHA DE RECEPCION', 'RECIBIDO', 'FECHA DE CARGA']]
+  ['recibido', ['FECHA RECEPCION', 'FECHA DE RECEPCION', 'RECIBIDO', 'FECHA DE CARGA']],
+  ['tipo', ['TIPO DE TARIFA', 'TIPO TARIFA', 'TIPO', 'INICIAL / NEGOCIADA', 'INICIAL O NEGOCIADA', 'ESTADO DE LA TARIFA']]
 ];
 var NOMBRE_CAMPO = { semana: 'Semana', agente: 'Agente', origen: 'Origen', destino: 'Destino', aerolinea: 'Aerolínea', transito: 'Tránsito', moneda: 'Moneda',
   minimo: 'Mínimo', r45: '45 kg', r100: '100 kg', r300: '300 kg', r500: '500 kg', r1000: '1000 kg', fuel: 'Fuel', imo: 'IMO', origenUsd: 'Gastos en origen (total)',
-  destinoUsd: 'Gastos destino', vigencia: 'Vigencia', allin: 'All-in USD/kg', obs: 'Observaciones', version: 'Versión', recibido: 'Fecha de recepción' };
+  destinoUsd: 'Gastos destino', vigencia: 'Vigencia', allin: 'All-in USD/kg', obs: 'Observaciones', version: 'Versión', recibido: 'Fecha de recepción', tipo: 'Tipo de tarifa (Inicial / Negociada)' };
 
 function claveTexto(v) {
   return String(v === null || v === undefined ? '' : v).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9+]/g, '');
@@ -479,15 +505,17 @@ function claveTexto(v) {
 function leerConfig() {
   var k = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(HOJA.CONFIG);
   if (!k) return { auto: false };
-  var v = k.getRange('B4:B8').getValues();
+  var v = k.getRange('B4:B9').getValues();
   return { url: String(v[0][0]).trim(), pestana: String(v[1][0]).trim(), auto: String(v[2][0]).trim().toUpperCase() === 'SI' && !!String(v[1][0]).trim(),
-           imoTexto: String(v[3][0]).trim() || 'Upon RQST', reemplazar: String(v[4][0]).indexOf('Agregar') !== 0 };
+           imoTexto: String(v[3][0]).trim() || 'Upon RQST', reemplazar: String(v[4][0]).indexOf('Agregar') !== 0,
+           pestanaNeg: String((v[5] || [''])[0]).trim() };
 }
-function abrirDestino(cfg) {
-  if (!cfg.pestana) throw new Error('Falta el nombre de la pestaña de destino en la pestaña Configuración.');
+function abrirDestino(cfg, nombre) {
+  nombre = nombre || cfg.pestana;
+  if (!nombre) throw new Error('Falta el nombre de la pestaña de destino en la pestaña Configuración.');
   var libro = cfg.url ? SpreadsheetApp.openByUrl(cfg.url) : SpreadsheetApp.getActiveSpreadsheet();
-  var hoja = libro.getSheetByName(cfg.pestana);
-  if (!hoja) throw new Error('No existe la pestaña "' + cfg.pestana + '" en la base madre. Revisá que el nombre sea exacto.');
+  var hoja = libro.getSheetByName(nombre);
+  if (!hoja) throw new Error('No existe la pestaña "' + nombre + '" en la base madre. Revisá que el nombre sea exacto.');
   return hoja;
 }
 // Busca en las primeras 20 filas la que más encabezados reconocidos tiene
@@ -533,29 +561,52 @@ function valorDe(campo, f, calc, cfg) {
     case 'fuel': return f.fuel; case 'imo': return f.imoPedido ? cfg.imoTexto : f.imo;
     case 'origenUsd': return calc.origen; case 'destinoUsd': return f.destino_usd; case 'vigencia': return f.vigencia;
     case 'allin': return calc.allin; case 'obs': return f.obs; case 'version': return f.version; case 'recibido': return f.recibido;
+    case 'tipo': return f.tipo || TIPOS.INICIAL;
   }
   return '';
 }
 function pegarEnBaseMadre(filas, W, cfg) {
   cfg = cfg || leerConfig();
-  var hoja = abrirDestino(cfg), enc = mapearEncabezados(hoja);
-  if (!enc) throw new Error('No encontré los encabezados en la pestaña "' + cfg.pestana + '" (busqué en las primeras 20 filas).');
+  // Las negociadas van a su propia pestaña si está configurada; si no, a la misma
+  var separada = !!cfg.pestanaNeg && cfg.pestanaNeg !== cfg.pestana, grupos = {};
+  filas.forEach(function (f) {
+    var destino = separada && f.tipo === TIPOS.NEGOCIADA ? cfg.pestanaNeg : cfg.pestana;
+    (grupos[destino] = grupos[destino] || []).push(f);
+  });
+  var total = { nuevas: 0, actualizadas: 0 };
+  Object.keys(grupos).forEach(function (nombre) {
+    var r = pegarEnPestana(abrirDestino(cfg, nombre), nombre, grupos[nombre], W, cfg, separada);
+    total.nuevas += r.nuevas; total.actualizadas += r.actualizadas;
+  });
+  return total;
+}
+
+function pegarEnPestana(hoja, nombre, filas, W, cfg, separada) {
+  var enc = mapearEncabezados(hoja);
+  if (!enc) throw new Error('No encontré los encabezados en la pestaña "' + nombre + '" (busqué en las primeras 20 filas).');
   var M = enc.mapa, colClave = M.origen || M.agente;
   if (!colClave) throw new Error('La pestaña de destino no tiene columna de Origen ni de Agente.');
   var ancho = hoja.getLastColumn(), nuevas = 0, actualizadas = 0;
   // Última fila con datos según la columna de Origen (las filas de abajo pueden tener fórmulas preparadas)
-  var ultima = enc.fila, total = hoja.getLastRow();
-  var datos = total > enc.fila ? hoja.getRange(enc.fila + 1, 1, total - enc.fila, ancho).getValues() : [];
-  var formulas = total > enc.fila ? hoja.getRange(enc.fila + 1, 1, total - enc.fila, ancho).getFormulas() : [];
+  var ultima = enc.fila, totalFilas = hoja.getLastRow();
+  var datos = totalFilas > enc.fila ? hoja.getRange(enc.fila + 1, 1, totalFilas - enc.fila, ancho).getValues() : [];
+  var formulas = totalFilas > enc.fila ? hoja.getRange(enc.fila + 1, 1, totalFilas - enc.fila, ancho).getFormulas() : [];
   datos.forEach(function (r, i) { if (String(r[colClave - 1]).trim() !== '') ultima = enc.fila + 1 + i; });
+  var mismaPestanaSinTipo = !separada && !M.tipo;
 
   filas.forEach(function (f) {
     var calc = calcularAllIn(f, W), fila = 0;
-    if (cfg.reemplazar && M.semana && M.agente && M.origen) {
+    if (M.semana && M.agente && M.origen) {
+      var candidatas = [];
       for (var i = 0; i < datos.length; i++) {
-        var r = datos[i];
-        if (claveTexto(r[M.semana - 1]) === claveTexto(f.semana) && claveTexto(r[M.agente - 1]) === claveTexto(f.agente) && claveTexto(r[M.origen - 1]) === claveTexto(f.origen)) { fila = enc.fila + 1 + i; break; }
+        var r = datos[i] || [];
+        if (claveTexto(r[M.semana - 1]) === claveTexto(f.semana) && claveTexto(r[M.agente - 1]) === claveTexto(f.agente) && claveTexto(r[M.origen - 1]) === claveTexto(f.origen) &&
+            (!M.tipo || claveTexto(r[M.tipo - 1] || TIPOS.INICIAL) === claveTexto(f.tipo || TIPOS.INICIAL))) candidatas.push(enc.fila + 1 + i);
       }
+      if (!cfg.reemplazar && f.motivo === MOTIVOS.correccion) fila = 0;                       // modo "agregar": cada envío es una fila
+      else if (!mismaPestanaSinTipo) fila = candidatas.length ? candidatas[candidatas.length - 1] : 0;
+      else if (f.tipo !== TIPOS.NEGOCIADA) fila = candidatas.length ? candidatas[0] : 0;      // la inicial es la primera fila de esa ruta
+      else fila = f.motivo === MOTIVOS.correccion && candidatas.length > 1 ? candidatas[candidatas.length - 1] : 0;   // nueva negociación: fila nueva, la inicial queda
     }
     var esNueva = !fila;
     if (esNueva) {
@@ -575,6 +626,7 @@ function pegarEnBaseMadre(filas, W, cfg) {
         return;
       }
       var v = valorDe(campo, f, calc, cfg);
+      if (campo === 'obs' && mismaPestanaSinTipo && f.tipo === TIPOS.NEGOCIADA) v = 'Tarifa negociada. ' + (v || '');
       hoja.getRange(fila, c).setValue(v === undefined || (typeof v === 'number' && isNaN(v)) ? '' : v);
     });
     if (esNueva) {
@@ -584,12 +636,13 @@ function pegarEnBaseMadre(filas, W, cfg) {
         if (fx && !usada && !formulas[idx][j]) { hoja.getRange(fila - 1, j + 1).copyTo(hoja.getRange(fila, j + 1), SpreadsheetApp.CopyPasteType.PASTE_FORMULA, false); formulas[idx][j] = fx; }
       });
       nuevas++;
-      if (M.semana) datos[idx][M.semana - 1] = f.semana;
-      if (M.agente) datos[idx][M.agente - 1] = f.agente;
-      if (M.origen) datos[idx][M.origen - 1] = f.origen;
     } else actualizadas++;
+    if (M.semana) datos[idx][M.semana - 1] = f.semana;
+    if (M.agente) datos[idx][M.agente - 1] = f.agente;
+    if (M.origen) datos[idx][M.origen - 1] = f.origen;
+    if (M.tipo) datos[idx][M.tipo - 1] = f.tipo;
   });
-  registrar('BIDCOM', 'Pegó en la base madre', nuevas + ' fila(s) nueva(s) y ' + actualizadas + ' actualizada(s) en "' + cfg.pestana + '"');
+  registrar('BIDCOM', 'Pegó en la base madre', nuevas + ' fila(s) nueva(s) y ' + actualizadas + ' actualizada(s) en "' + nombre + '"');
   return { nuevas: nuevas, actualizadas: actualizadas };
 }
 
@@ -605,6 +658,9 @@ function verificarBaseMadre() {
       'Columnas que se van a completar solas:\n' + campos.join('\n') +
       (enc.desconocidas.length ? '\n\nColumnas que no toco (quedan como están, y si tienen fórmula se copia): ' + enc.desconocidas.join(', ') : '') +
       (faltan.length ? '\n\nDatos que la base madre no tiene como columna (quedan solo en las pestañas de envíos): ' + faltan.join(', ') : '') +
+      '\n\nTarifas negociadas: ' + (cfg.pestanaNeg && cfg.pestanaNeg !== cfg.pestana ? 'van a la pestaña "' + cfg.pestanaNeg + '".'
+        : enc.mapa.tipo ? 'van a esta misma pestaña, en otra fila, con "Negociada" en la columna ' + hoja.getRange(enc.fila, enc.mapa.tipo).getValue() + '. La inicial no se pisa.'
+        : 'van a esta misma pestaña en una fila nueva, con "Tarifa negociada." en Observaciones. La inicial no se pisa. Si agregás una columna "Tipo de tarifa", queda más claro.') +
       '\n\nPegado automático: ' + (cfg.auto ? 'activado' : 'desactivado') + '.');
   } catch (e) { ui.alert(String(e.message || e)); }
 }
@@ -613,10 +669,13 @@ function pasarSemanaABaseMadre() {
   var ui = SpreadsheetApp.getUi(), ss = SpreadsheetApp.getActiveSpreadsheet(), sol = leerSolicitud();
   var t = ss.getSheetByName(HOJA.TARIFAS).getDataRange().getValues(), g = ss.getSheetByName(HOJA.GASTOS).getDataRange().getValues();
   var filas = [];
+  var ultimas = {};   // última fila de cada agente + ruta + tipo
+  for (var x = 1; x < t.length; x++) { if (t[x][2] === sol.semana) ultimas[[t[x][3], t[x][6], t[x][25] || TIPOS.INICIAL].join('|')] = x; }
+  var elegidas = {}; Object.keys(ultimas).forEach(function (k) { elegidas[ultimas[k]] = true; });
   for (var i = 1; i < t.length; i++) {
-    if (t[i][2] !== sol.semana || t[i][5] !== 'SI') continue;
+    if (!elegidas[i]) continue;
     var id = t[i][0], origen = t[i][6];
-    filas.push({ semana: t[i][2], agente: t[i][3], version: t[i][4], recibido: t[i][1], origen: origen, destino: t[i][7], aerolinea: t[i][8], transito: t[i][9],
+    filas.push({ semana: t[i][2], agente: t[i][3], version: t[i][4], recibido: t[i][1], tipo: t[i][25] || TIPOS.INICIAL, motivo: t[i][26] || '', origen: origen, destino: t[i][7], aerolinea: t[i][8], transito: t[i][9],
       minimo: num(t[i][11]), tarifas: { 45: t[i][12], 100: t[i][13], 300: t[i][14], 500: t[i][15], 1000: t[i][16] }, fuel: num(t[i][17]), imo: num(t[i][18]),
       imoPedido: t[i][19] === 'SI', destino_usd: num(t[i][21]), vigencia: t[i][22], obs: t[i][24],
       gastos: g.slice(1).filter(function (x) { return x[0] === id && x[4] === origen; })
@@ -628,4 +687,79 @@ function pasarSemanaABaseMadre() {
     var r = pegarEnBaseMadre(filas, sol.peso, cfg);
     ui.alert('Listo: ' + r.nuevas + ' fila(s) nueva(s) y ' + r.actualizadas + ' actualizada(s) en "' + cfg.pestana + '".');
   } catch (e) { ui.alert(String(e.message || e)); }
+}
+
+/* ------------------------------------------------------------------ */
+/* Encabezados nuevos en instalaciones existentes                       */
+/* ------------------------------------------------------------------ */
+function asegurarEncabezados(hoja, cols) {
+  if (!hoja) return;
+  var actual = hoja.getRange(1, 1, 1, cols.length).getValues()[0];
+  cols.forEach(function (c, i) { if (!String(actual[i]).trim()) { hoja.getRange(1, i + 1).setValue(c); estiloFila(hoja.getRange(1, i + 1, 1, 1)); } });
+}
+
+/* ------------------------------------------------------------------ */
+/* Negociación aérea: inicial contra negociada, ahorro                 */
+/* Se rearma siempre desde el historial de envíos, que nunca se borra.  */
+/* ------------------------------------------------------------------ */
+var COLS_NEG = ['Semana', 'Agente', 'Origen', 'Estado', 'Rondas negociadas', 'Tarifa al peso ref. inicial', 'Tarifa al peso ref. negociada',
+  'All-in inicial USD/kg', 'All-in negociado USD/kg', 'Ahorro USD/kg', 'Ahorro %', 'Gastos en origen inicial USD', 'Gastos en origen negociado USD',
+  'Ahorro en gastos en origen USD', 'Enviada inicial', 'Enviada negociada'];
+
+function armarNegociacion() {
+  var h = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(HOJA.NEGOCIACION);
+  h.getRange('A1').setValue('Negociación aérea: tarifa inicial contra tarifa negociada').setFontWeight('bold').setFontSize(14);
+  h.getRange('A2').setValue('Se arma sola con cada envío a partir del historial (que nunca se borra). All-in al peso de referencia de la Solicitud semanal. No editar a mano.');
+  h.getRange(3, 1, 1, 6).setValues([['Rutas cotizadas', 'Rutas negociadas', 'Ahorro promedio USD/kg', 'Ahorro promedio %', 'Mayor ahorro %', 'Ahorro en gastos en origen USD']]).setFontWeight('bold');
+  h.getRange(4, 1, 1, 6).setFormulas([['=COUNTA(A7:A)', '=COUNTIF(D7:D,"Negociada")', '=IFERROR(AVERAGEIF(D7:D,"Negociada",J7:J),"")',
+    '=IFERROR(AVERAGEIF(D7:D,"Negociada",K7:K),"")', '=IFERROR(MAX(K7:K),"")', '=SUM(N7:N)']]);
+  h.getRange('C4').setNumberFormat('0.00'); h.getRange('D4:E4').setNumberFormat('0.0%'); h.getRange('F4').setNumberFormat('#,##0.00');
+  h.getRange(4, 1, 1, 6).setFontSize(13).setBackground('#E2EFDA');
+  h.getRange(6, 1, 1, COLS_NEG.length).setValues([COLS_NEG]);
+  estiloFila(h.getRange(6, 1, 1, COLS_NEG.length));
+  h.setFrozenRows(6); h.setFrozenColumns(3);
+  h.getRange('F7:J').setNumberFormat('0.00'); h.getRange('K7:K').setNumberFormat('0.0%'); h.getRange('L7:N').setNumberFormat('#,##0.00');
+  h.getRange('O7:P').setNumberFormat('dd/mm/yyyy hh:mm');
+  h.setColumnWidth(2, 180); h.setColumnWidth(3, 150);
+  h.setConditionalFormatRules([
+    SpreadsheetApp.newConditionalFormatRule().whenNumberGreaterThan(0).setBackground('#D9EAD3').setRanges([h.getRange('J7:K')]).build(),
+    SpreadsheetApp.newConditionalFormatRule().whenNumberLessThan(0).setBackground('#F4CCCC').setRanges([h.getRange('J7:K')]).build()]);
+}
+
+function actualizarNegociacion() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), h = ss.getSheetByName(HOJA.NEGOCIACION);
+  if (!h) return;
+  var t = ss.getSheetByName(HOJA.TARIFAS).getDataRange().getValues(), g = ss.getSheetByName(HOJA.GASTOS).getDataRange().getValues();
+  var W = leerSolicitud().peso, gastosPorId = {};
+  for (var j = 1; j < g.length; j++) {
+    var k = g[j][0] + '|' + g[j][4];
+    (gastosPorId[k] = gastosPorId[k] || []).push({ importe: num(g[j][7]), unidad: g[j][8], minimo: num(g[j][9]), pedido: g[j][10] === 'SI' });
+  }
+  var rutas = {}, orden = [];
+  for (var i = 1; i < t.length; i++) {
+    if (!t[i][0]) continue;
+    var key = [t[i][2], t[i][3], t[i][6]].join('|'), tipo = t[i][25] || TIPOS.INICIAL;
+    if (!rutas[key]) { rutas[key] = { semana: t[i][2], agente: t[i][3], origen: t[i][6], ini: null, neg: null, rondas: 0 }; orden.push(key); }
+    var f = { tarifas: { 45: t[i][12], 100: t[i][13], 300: t[i][14], 500: t[i][15], 1000: t[i][16] }, minimo: num(t[i][11]), fuel: num(t[i][17]), imo: num(t[i][18]),
+      imoPedido: t[i][19] === 'SI', destino_usd: num(t[i][21]), gastos: gastosPorId[t[i][0] + '|' + t[i][6]] || [], recibido: t[i][1] };
+    f.calc = calcularAllIn(f, W); f.rate = tarifaAlPeso(f.tarifas, W);
+    if (tipo === TIPOS.NEGOCIADA) { if (t[i][26] !== MOTIVOS.correccion) rutas[key].rondas++; rutas[key].neg = f; }   // la última negociada (o su corrección) es la que vale
+    else rutas[key].ini = f;                                                                                          // la última inicial (con correcciones) es la inicial
+  }
+  var filas = orden.map(function (k) {
+    var r = rutas[k], a = r.ini, b = r.neg;
+    var ahorro = a && b && a.calc.allin !== '' && b.calc.allin !== '' ? a.calc.allin - b.calc.allin : '';
+    return [r.semana, r.agente, r.origen, b ? 'Negociada' : 'Sin negociar', r.rondas || '',
+      a && !isNaN(a.rate) ? a.rate : '', b && !isNaN(b.rate) ? b.rate : '', a ? a.calc.allin : '', b ? b.calc.allin : '',
+      ahorro === '' ? '' : Math.round(ahorro * 10000) / 10000, ahorro === '' || !a.calc.allin ? '' : ahorro / a.calc.allin,
+      a ? a.calc.origen : '', b ? b.calc.origen : '', a && b ? Math.round((a.calc.origen - b.calc.origen) * 100) / 100 : '',
+      a ? a.recibido : '', b ? b.recibido : ''];
+  }).sort(function (x, y) { return x[0] < y[0] ? 1 : x[0] > y[0] ? -1 : (x[2] + x[1] < y[2] + y[1] ? -1 : 1); });
+  var ultima = h.getLastRow();
+  if (ultima >= 7) h.getRange(7, 1, ultima - 6, COLS_NEG.length).clearContent();
+  if (filas.length) h.getRange(7, 1, filas.length, COLS_NEG.length).setValues(filas);
+}
+function actualizarNegociacionMenu() {
+  actualizarNegociacion();
+  SpreadsheetApp.getUi().alert('Listo. La pestaña "' + HOJA.NEGOCIACION + '" está actualizada con todo el historial.');
 }

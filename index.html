@@ -53,6 +53,10 @@ p { margin: 0; }
 .topbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); border-bottom: 1px solid var(--line); }
 .topbar-in { max-width: 1240px; margin: 0 auto; padding: 10px 16px; display: flex; gap: 12px 20px; align-items: center; flex-wrap: wrap; }
 .brand { display: flex; align-items: baseline; gap: 8px; }
+.version-tag { font: inherit; font-size: 11.5px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border: 0; border-radius: 999px; padding: 2px 9px; cursor: pointer; }
+.news h3 { margin-top: 4px; }
+.news ul { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.news .when { font-family: var(--font-data); font-size: 12px; color: var(--muted); }
 .modes { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; padding: 3px; gap: 2px; background: var(--sunken); margin-right: auto; }
 .mode-btn { font: inherit; font-weight: 600; font-size: 13px; border: 0; background: none; color: var(--muted); padding: 6px 14px; border-radius: 6px; cursor: pointer; }
 .mode-btn[aria-pressed="true"] { background: var(--surface); color: var(--accent); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
@@ -61,7 +65,7 @@ p { margin: 0; }
 .brand b { font-size: 16px; letter-spacing: -.01em; }
 .brand span { font-size: 12px; color: var(--muted); }
 .who { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.who select { min-width: 0; }
+.who select { min-width: 0; width: auto; max-width: 100%; }
 .demo-tag { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--warn-soft); color: var(--warn); font-weight: 600; }
 
 .shell { max-width: 1240px; margin: 0 auto; padding-inline: 16px; padding-block: 20px 48px; display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 24px; }
@@ -190,10 +194,12 @@ td input, td select { padding: 5px 7px; font-size: 13px; }
 
 <div class="topbar">
   <div class="topbar-in">
-    <div class="brand"><b>Tarifador BIDCOM</b></div>
+    <div class="brand"><b>Tarifador BIDCOM</b><button type="button" class="version-tag" data-nav="novedades" title="Ver novedades">Versión 1.4 · 07/10/2026</button></div>
     <div class="modes" role="group" aria-label="Modo de transporte"><button type="button" class="mode-btn" data-mode-switch="sea">Marítimo</button><button type="button" class="mode-btn" data-mode-switch="air">Aéreo</button></div>
     <div class="who">
       <span class="demo-tag">Prototipo · datos ficticios</span>
+      <label class="small muted" for="tema">Tema</label>
+      <select id="tema"><option value="auto">Automático</option><option value="light">Claro</option><option value="dark">Oscuro</option></select>
       <label class="small muted" for="role">Ver como</label>
       <select id="role"></select>
       <button class="btn small" id="reset" type="button">Reiniciar demo</button>
@@ -462,10 +468,10 @@ function legacyKnRoutes() { return parseLegacy(KN_LEGACY_ROWS).routes; }
 let state;
 const ui = { role: 'BIDCOM', mode: 'sea', airEditor: null, view: 'dash', detailId: null, detailVersion: null, agentDetailId: null, editor: null, importResult: null, histPol: 'CNNGB', histC: '40HQ', mesaC: '40HQ', composer: null };
 function load() {
-  try { const raw = localStorage.getItem('tarifador-demo-public-v1'); if (raw) { state = JSON.parse(raw); return; } } catch (e) {}
+  try { const raw = localStorage.getItem('tarifador-demo-public-v2'); if (raw) { state = JSON.parse(raw); return; } } catch (e) {}
   state = seedState();
 }
-function save() { try { localStorage.setItem('tarifador-demo-public-v1', JSON.stringify(state)); } catch (e) {} }
+function save() { try { localStorage.setItem('tarifador-demo-public-v2', JSON.stringify(state)); } catch (e) {} }
 function log(action, q, v) {
   const who = ui.role === 'BIDCOM' ? 'BIDCOM' : AGENTS[ui.role].name;
   const d = new Date(); state.audit.unshift({ at: d.toISOString().slice(0, 16).replace('T', ' '), user: who, action, quote: q?.number || '', v: v ?? '' });
@@ -779,11 +785,16 @@ function verdictOf(f, l) {
   return { text: 'Revisar', color: '' };
 }
 function lastVersion(q) { return q.versions[q.versions.length - 1]; }
+// Tipo de tarifa: la primera versión es la inicial; una respuesta a un pedido de BIDCOM es negociada; una corrección mantiene el tipo que corrige
+const tipoOf = v => v.tipo || (v.no === 1 ? 'Inicial' : 'Negociada');
+const tipoPill = v => pill(tipoOf(v) === 'Negociada' ? 'Tarifa negociada' : 'Tarifa inicial', tipoOf(v) === 'Negociada' ? 'green' : 'blue') + (v.motivo === 'Corrección' ? ' <span class="small muted">corrección</span>' : '');
+function initialVersion(q) { return [...q.versions].reverse().find(v => v.locked && tipoOf(v) === 'Inicial') || q.versions[0]; }
+const canCorrect = q => !['draft', 'incomplete', 'renegotiation_requested', 'approved', 'rejected', 'expired'].includes(q.status);
 function evaluateQuote(q, v = lastVersion(q)) { return v.routes.map(r => ({ r, evals: evaluateRoute(r, q) })); }
 function statusAfterEvaluation(q) {
   const v = lastVersion(q);
   if (validateVersion(v).length) return 'incomplete';
-  if (v.no > 1) return 'renegotiated';
+  if (tipoOf(v) === 'Negociada') return 'renegotiated';
   const ev = evaluateQuote(q).flatMap(x => x.evals);
   return ev.every(e => e.verdict.color === 'green') ? 'within_target' : 'needs_renegotiation';
 }
@@ -800,8 +811,9 @@ function versionTotals(v) {
   return m;
 }
 function negotiationSummary(q) {
-  if (q.versions.length < 2) return [];
-  const a = versionTotals(q.versions[0]), b = versionTotals(lastVersion(q)), S = state.settings, res = [];
+  const v0 = initialVersion(q), v1 = lastVersion(q);
+  if (v0 === v1 || tipoOf(v1) !== 'Negociada') return [];
+  const a = versionTotals(v0), b = versionTotals(v1), S = state.settings, res = [];
   for (const k of Object.keys(b)) {
     if (!a[k]) continue;
     const f = a[k], l = b[k], fSave = f.freight - l.freight, lSave = f.locals - l.locals, tSave = f.total - l.total;
@@ -817,17 +829,17 @@ function negotiationSummary(q) {
    ===================================================================== */
 function navItems() {
   if (ui.mode === 'air') {
-    if (ui.role === 'BIDCOM') return [['a-comp','Comparativo semanal'],['a-solicitud','Solicitud semanal'],'sep',['config','Configuración'],['audit','Auditoría']];
+    if (ui.role === 'BIDCOM') return [['a-comp','Comparativo semanal'],['a-solicitud','Solicitud semanal'],'sep',['config','Configuración'],['audit','Auditoría'],['novedades','Novedades']];
     const n = airQuotesOf(ui.role).filter(q => ['renegotiation_requested','incomplete'].includes(q.status)).length;
-    return [['a-mis','Tarifario semanal', n],['a-importar','Importar Excel']];
+    return [['a-mis','Tarifario semanal', n],['a-importar','Importar Excel'],'sep',['novedades','Novedades']];
   }
   if (ui.role === 'BIDCOM') {
     const pend = state.quotes.filter(q => q.mode !== 'air' && ['submitted','in_review','needs_renegotiation','renegotiated'].includes(q.status)).length;
-    return [['dash','Dashboard'],['cotiz','Todas las cotizaciones', pend],['mesa','Mesa de negociación'],['hist','Históricos'],'sep',['config','Configuración'],['audit','Auditoría']];
+    return [['dash','Dashboard'],['cotiz','Todas las cotizaciones', pend],['mesa','Mesa de negociación'],['hist','Históricos'],'sep',['config','Configuración'],['audit','Auditoría'],['novedades','Novedades']];
   }
   const mine = state.quotes.filter(q => q.agent === ui.role && q.mode !== 'air');
   const needs = mine.filter(q => q.status === 'renegotiation_requested' || q.status === 'incomplete').length;
-  return [['mis','Mis cotizaciones', needs],['nueva','Nueva cotización'],['importar','Importar Excel']];
+  return [['mis','Mis cotizaciones', needs],['nueva','Nueva cotización'],['importar','Importar Excel'],'sep',['novedades','Novedades']];
 }
 function render() {
   const roleSel = $('#role');
@@ -838,7 +850,7 @@ function render() {
     `<button type="button" data-nav="${it[0]}" ${ui.view === it[0] || (ui.view === 'detalle' && it[0] === 'cotiz') || (ui.view === 'ver' && it[0] === 'mis') || (ui.view === 'editor' && it[0] === 'nueva') || (ui.view === 'a-detalle' && it[0] === 'a-comp') || (['a-editor','a-ver'].includes(ui.view) && it[0] === 'a-mis') ? 'aria-current="page"' : ''}>${esc(it[1])}${it[2] ? `<span class="count">${it[2]}</span>` : ''}</button>`).join('');
   const views = { dash: viewDash, cotiz: viewAllQuotes, detalle: viewDetail, mesa: viewMesa, hist: viewHist, config: viewConfig, audit: viewAudit,
     mis: viewMine, ver: viewAgentDetail, nueva: viewNew, editor: viewEditor, importar: viewImport,
-    'a-mis': viewAirMine, 'a-editor': viewAirEditor, 'a-ver': viewAirAgentDetail, 'a-importar': viewAirImport, 'a-comp': viewAirComp, 'a-detalle': viewAirDetail, 'a-solicitud': viewAirRequest };
+    'a-mis': viewAirMine, 'a-editor': viewAirEditor, 'a-ver': viewAirAgentDetail, 'a-importar': viewAirImport, 'a-comp': viewAirComp, 'a-detalle': viewAirDetail, 'a-solicitud': viewAirRequest, novedades: viewNews };
   $('#main').innerHTML = (views[ui.view] || (() => ''))();
   if (ui.view === 'editor') bindEditor();
   if (ui.view === 'a-editor') bindAirEditor();
@@ -850,6 +862,31 @@ const pill = (text, color) => `<span class="pill ${color || ''}">${esc(text)}</s
 const lightPill = l => pill(LIGHT_LABEL[l] || l, l === 'none' ? '' : l);
 const routeTitle = r => `<span class="route">${esc(polLabel(r))}<span class="arrow">→</span>${esc(portName(r.pod))}</span>`;
 
+/* ---------------------------- NOVEDADES ---------------------------- */
+const GH = 'https://github.com/solp-boop/tarifador-bidcom/blob/main/google-sheets/';
+function viewNews() {
+  const item = (fecha, version, titulo, puntos) => `<section class="panel news"><span class="when">${fecha} · versión ${version}</span><h3>${titulo}</h3><ul>${puntos.map(x => `<li>${x}</li>`).join('')}</ul></section>`;
+  return `<div class="page-head"><div><h1>Novedades</h1><p>Todos los cambios se ven en este mismo link. Si no ves algo nuevo, recargá la página (F5). El número de versión arriba a la izquierda te dice qué versión estás viendo.</p></div></div>
+    ${item('07/10/2026', '1.4', 'Tarifa inicial y negociada en un solo lugar', [
+      'Cada envío queda marcado como <b>Tarifa inicial</b> o <b>Tarifa negociada</b>. Ya no hace falta separar en dos lugares: la inicial nunca se pisa.',
+      'El agente puede <b>Corregir un error</b> de un envío: reemplaza el envío con error y no cuenta como negociación.',
+      'Cuando BIDCOM pide una mejora, la respuesta del agente se registra como tarifa negociada.',
+      'Aéreo: nuevo panel <b>Negociación de la semana</b> en el Comparativo semanal y en cada tarifario (all-in inicial, negociado y ahorro). Para verlo: Aéreo, Ver como BIDCOM, Comparativo semanal.',
+      'Marítimo: el detalle de cada cotización muestra inicial contra negociada y el ahorro en flete, gastos en origen y total.'])}
+    ${item('07/10/2026', '1.4', 'Tema claro u oscuro', ['Arriba a la derecha, en <b>Tema</b>, cada persona elige Claro, Oscuro o Automático. Queda guardado en su navegador. El formulario del agente en la planilla de Google también tiene el selector.'])}
+    ${item('07/10/2026', '1.3', 'Plantillas Excel con colores', ['Botones <b>Descargar modelo</b> y <b>Descargar ejemplo completo</b> (en Nueva cotización e Importar Excel): amarillo obligatorio, celeste opcional, listas desplegables, notas en cada encabezado y una columna Control que avisa qué falta.',
+      'La solapa <b>Gastos en origen</b> está destacada y trae los conceptos precargados.'])}
+    ${item('05/10/2026', '1.2', 'Módulo aéreo', ['Solicitud semanal, tarifario por ruta con breaks de peso, gastos en origen por aeropuerto (fijo o por kg con mínimo) y comparativo en USD por kg.'])}
+    <section class="panel news"><span class="when">Planilla de Google · la herramienta real</span><h3>Formulario por link para cada agente</h3>
+      <p class="muted" style="margin-top:6px">Esta página es el prototipo para ver y ajustar el diseño (datos ficticios, se guardan solo en tu navegador). La carga real de tarifas aéreas funciona en tu planilla de Google: cada agente entra con su link, ve solo lo suyo y lo que envía queda guardado en la planilla y se pega en la base madre.</p>
+      <ul>
+        <li>Envíos con <b>tipo de tarifa</b> (inicial o negociada) y motivo de reenvío (corrección o mejora).</li>
+        <li>Pestaña <b>Negociación aérea</b>: inicial contra negociada y ahorro de cada agente y ruta. Se rearma desde el historial de envíos, que nunca se borra.</li>
+        <li>Pegado en la <b>base madre</b> sin pisar la inicial: en la misma pestaña (con columna "Tipo de tarifa" o con "Tarifa negociada." en Observaciones) o en una pestaña aparte para negociadas.</li>
+        <li>Archivos para pegar en Apps Script: <a href="${GH}Code.gs" target="_blank" rel="noopener">Code.gs</a> y <a href="${GH}Index.html" target="_blank" rel="noopener">Index.html</a>.</li>
+      </ul></section>`;
+}
+
 /* ---------------------------- AGENTE ---------------------------- */
 function viewMine() {
   const mine = state.quotes.filter(q => q.agent === ui.role && q.mode !== 'air').slice().reverse();
@@ -858,9 +895,10 @@ function viewMine() {
     const v = lastVersion(q), [st, col] = AGENT_STATUS[q.status];
     const conts = [...new Set(v.routes.flatMap(r => Object.keys(r.freight)))].join(', ');
     const action = q.status === 'renegotiation_requested' ? `<button class="btn primary small" data-act="respond" data-id="${q.id}">Cargar nueva versión</button>`
-      : q.status === 'incomplete' || q.status === 'draft' ? `<button class="btn primary small" data-act="edit" data-id="${q.id}">Completar</button>` : '';
+      : q.status === 'incomplete' || q.status === 'draft' ? `<button class="btn primary small" data-act="edit" data-id="${q.id}">Completar</button>`
+      : canCorrect(q) ? `<button class="btn small" data-act="correct" data-id="${q.id}">Corregir un error</button>` : '';
     return `<div class="quote-card"><div class="stack" style="gap:4px">
-      <div class="row"><span class="mono">#${esc(q.number)}</span>${pill(st, col)}</div>
+      <div class="row"><span class="mono">#${esc(q.number)}</span>${pill(st, col)}${v.locked ? tipoPill(v) : ''}</div>
       <div>${v.routes.map(routeTitle).join('<span class="muted"> · </span>')}</div>
       <div class="meta"><span>${esc(conts || 'sin contenedores')}</span><span>Validez ${esc(v.validFrom || '—')} al ${esc(v.validTo || '—')}</span><span>Versión ${v.no}</span><span>${esc(v.source)}</span></div></div>
       <div class="row">${action}<button class="btn small" data-act="agent-view" data-id="${q.id}">Ver</button></div></div>`;
@@ -882,7 +920,7 @@ function viewAgentDetail() {
     <section class="panel"><header><h2>Versión ${v.no}</h2><span class="muted small">Validez ${esc(v.validFrom || '—')} al ${esc(v.validTo || '—')} · ${esc(v.source)}</span></header>
       ${v.routes.map(r => routeReadOnly(r)).join('')}</section>
     ${q.versions.length > 1 ? `<section class="panel"><h2>Versiones enviadas</h2><div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>Versión</th><th>Fecha</th>${CONTAINERS.map(c => `<th class="num">${c}</th>`).join('')}</tr></thead><tbody>
-      ${q.versions.map(x => `<tr><td>v${x.no}</td><td>${esc(x.submittedAt || x.date)}</td>${CONTAINERS.map(c => { const f = x.routes[0]?.freight[c]; return `<td class="num">${f && f.amt ? usd(toBase(f.amt, f.cur)) : '—'}</td>`; }).join('')}</tr>`).join('')}</tbody></table></div></section>` : ''}`;
+      ${q.versions.map(x => `<tr><td>v${x.no} ${tipoPill(x)}</td><td>${esc(x.submittedAt || x.date)}</td>${CONTAINERS.map(c => { const f = x.routes[0]?.freight[c]; return `<td class="num">${f && f.amt ? usd(toBase(f.amt, f.cur)) : '—'}</td>`; }).join('')}</tr>`).join('')}</tbody></table></div></section>` : ''}`;
 }
 function agentFeedbackPanel(q, n) {
   return `<section class="panel" style="border-color:var(--neg)"><header><h2>BIDCOM solicita mejorar tu propuesta</h2><span class="muted small">${esc(n.at)}</span></header>
@@ -909,23 +947,33 @@ function viewNew() {
       <div class="option"><span class="n">Opción 2</span><h2>Subir Excel</h2><p class="muted">Descargá la plantilla BIDCOM, completala y subila. También aceptamos el formato que usás hoy, y te marcamos qué falta.</p><div><button class="btn" data-nav="importar">Ir a importar</button></div></div>
     </div>`;
 }
-function newDraftVersion() { return { no: 1, date: todayISO(), validFrom: '', validTo: '', source: 'Formulario', locked: false, routes: [emptyRoute()] }; }
+function newDraftVersion() { return { no: 1, tipo: 'Inicial', date: todayISO(), validFrom: '', validTo: '', source: 'Formulario', locked: false, routes: [emptyRoute()] }; }
 function openEditor(quoteId, mode) {
   let v, title;
   if (!quoteId) { v = newDraftVersion(); title = 'Nueva cotización'; }
   else {
     const q = state.quotes.find(x => x.id === quoteId), last = lastVersion(q);
-    if (mode === 'respond') { v = structuredClone(last); v.no = last.no + 1; v.locked = false; v.date = todayISO(); v.source = 'Formulario'; delete v.submittedAt; title = `Nueva versión ${v.no} · #${q.number}`; }
-    else { v = structuredClone(last); title = `Completar #${q.number}`; }
+    if (mode === 'respond' || mode === 'correct') {
+      v = structuredClone(last); v.no = last.no + 1; v.locked = false; v.date = todayISO(); v.source = 'Formulario'; delete v.submittedAt;
+      v.tipo = mode === 'respond' ? 'Negociada' : tipoOf(last); v.motivo = mode === 'respond' ? 'Mejora negociada' : 'Corrección';
+      title = mode === 'respond' ? `Tarifa negociada · #${q.number}` : `Corrección · #${q.number}`;
+    } else { v = structuredClone(last); title = `Completar #${q.number}`; }
   }
   ui.editor = { quoteId, mode: mode || 'new', title, v };
   go('editor');
+}
+function tipoBanner(mode, v) {
+  const txt = mode === 'respond' ? 'Esta versión se registra como <b>tarifa negociada</b>. Tu tarifa inicial queda guardada y BIDCOM ve las dos.'
+    : mode === 'correct' ? `Esta versión corrige un error y reemplaza a tu envío anterior. Sigue siendo tu <b>${tipoOf(v) === 'Negociada' ? 'tarifa negociada' : 'tarifa inicial'}</b>: no cuenta como negociación.`
+    : 'Esta versión se registra como <b>tarifa inicial</b>. Si BIDCOM te pide una mejora, la cargás como tarifa negociada y la inicial queda guardada.';
+  return `<div class="alert info"><p>${txt}</p></div>`;
 }
 function viewEditor() {
   const E = ui.editor; if (!E) return '';
   const v = E.v, issues = validateVersion(v), q = E.quoteId ? state.quotes.find(x => x.id === E.quoteId) : null;
   const neg = q && E.mode === 'respond' ? feedbackFor(q).find(n => n.status === 'requested') : null;
   return `<div class="page-head"><div><button class="linkbtn" data-nav="mis">← Mis cotizaciones</button><h1 style="margin-top:6px">${esc(E.title)}</h1><p>Completá los datos; a la derecha ves en todo momento qué falta para poder enviar.</p></div></div>
+    ${tipoBanner(E.mode, v)}
     ${neg ? `<div class="alert warn"><b class="t">Conceptos que BIDCOM pidió revisar</b><ul>${neg.items.map(it => `<li>${esc(it.label)}: cotizado ${usd(it.quoted)}, objetivo requerido ≤ ${usd(it.max)}</li>`).join('')}</ul></div>` : importantPanel('sea', true)}
     <div class="editor-layout"><div class="stack" style="gap:16px">
       <section class="panel"><div class="section-title"><span class="step">1</span><h2>Vigencia</h2></div>
@@ -1045,8 +1093,8 @@ function commitEditor(send) {
   v.locked = true;
   if (E.mode === 'respond') {
     const n = feedbackFor(q).find(x => x.status === 'requested'); if (n) { n.status = 'answered'; n.toVersion = v.no; }
-    q.status = 'renegotiated'; log(`Envió versión ${v.no} (renegociada)`, q, v.no);
-  } else { q.status = statusAfterEvaluation(q); log('Envió cotización', q, v.no); }
+    q.status = 'renegotiated'; log(`Envió versión ${v.no} (tarifa negociada)`, q, v.no);
+  } else { q.status = statusAfterEvaluation(q); log(E.mode === 'correct' ? `Envió versión ${v.no} (corrección de la ${tipoOf(v).toLowerCase()})` : 'Envió cotización (tarifa inicial)', q, v.no); }
   ui.editor = null; toast('Cotización enviada a BIDCOM'); go('ver', { agentDetailId: q.id });
 }
 function viewImport() {
@@ -1165,7 +1213,7 @@ function viewAllQuotes() {
       const worst = ev.length ? ev.map(e => e.verdict).sort((a, b) => rank(b.color) - rank(a.color))[0] : null;
       return `<tr class="clickable" data-act="open-detail" data-id="${q.id}"><td class="mono">${esc(q.number)}</td><td>${esc(AGENTS[q.agent].name)}</td>
         <td>${v.routes.map(r => esc(polLabel(r)) + ' → ' + esc(portName(r.pod))).join('<br>')}</td><td class="mono">${esc([...new Set(v.routes.flatMap(r => Object.keys(r.freight)))].join(', '))}</td>
-        <td>v${v.no}</td><td>${pill(STATUS[q.status], STATUS_COLOR[q.status])}</td><td>${incomplete ? pill(incomplete + ' faltante(s)', 'red') : worst ? pill(worst.text, worst.color) : '—'}</td></tr>`; }).join('')}
+        <td>v${v.no} · ${tipoOf(v) === 'Negociada' ? 'negociada' : 'inicial'}</td><td>${pill(STATUS[q.status], STATUS_COLOR[q.status])}</td><td>${incomplete ? pill(incomplete + ' faltante(s)', 'red') : worst ? pill(worst.text, worst.color) : '—'}</td></tr>`; }).join('')}
     </tbody></table></div>`;
 }
 const rank = c => ({ red: 4, orange: 3, yellow: 2, green: 1 }[c] || 0);
@@ -1194,7 +1242,7 @@ function viewDetail() {
   return `<div class="page-head"><div><button class="linkbtn" data-nav="cotiz">← Todas las cotizaciones</button>
       <h1 style="margin-top:6px">#${esc(q.number)} · ${esc(AGENTS[q.agent].name)}</h1><p>Validez ${esc(v.validFrom || '—')} al ${esc(v.validTo || '—')} · cargada por ${esc(v.source)}</p></div>
       <div class="stack" style="align-items:flex-end;gap:8px">${pill(STATUS[q.status], STATUS_COLOR[q.status])}
-      <div class="versions">${q.versions.map(x => `<button class="chip" data-act="pick-version" data-v="${x.no}" aria-pressed="${x.no === v.no}">v${x.no}${x.no === 1 ? ' · sin negociar' : ' · negociada'}</button>`).join('')}</div></div></div>
+      <div class="versions">${q.versions.map(x => `<button class="chip" data-act="pick-version" data-v="${x.no}" aria-pressed="${x.no === v.no}">v${x.no} · ${tipoOf(x) === 'Negociada' ? 'negociada' : 'inicial'}${x.motivo === 'Corrección' ? ' (corrección)' : ''}</button>`).join('')}</div></div></div>
     ${canAct && !issues.length && v.no === lastVersion(q).no ? `<div class="row">
       ${q.status !== 'renegotiation_requested' ? `<button class="btn primary" data-act="open-composer" data-id="${q.id}">Solicitar renegociación</button>` : '<span class="muted small">Renegociación solicitada: esperando respuesta del agente.</span>'}
       <button class="btn" data-act="set-status" data-s="shortlist" data-id="${q.id}">Shortlist</button>
@@ -1203,7 +1251,7 @@ function viewDetail() {
     ${composer}
     ${issues.length ? `<div class="alert bad"><b class="t">Información incompleta: no se puede evaluar todavía</b><ul>${issues.map(i => `<li>${esc(i.msg)}</li>`).join('')}</ul><p class="small">El agente ve esta misma lista en su portal.</p></div>
       ${v.routes.map(routeReadOnly).join('')}` : ''}
-    ${summary.length ? `<section class="panel"><header><h2>Resultado de la negociación</h2><span class="muted small">v1 sin negociar contra v${lastVersion(q).no}</span></header>
+    ${summary.length ? `<section class="panel"><header><h2>Resultado de la negociación</h2><span class="muted small">Tarifa inicial (v${initialVersion(q).no}) contra tarifa negociada (v${lastVersion(q).no})</span></header>
       ${summary.map(s => `${s.shift ? `<div class="alert warn" style="margin-bottom:10px"><b class="t">Posible traslado de costos entre flete y locales · ${esc(s.k)}</b><p class="small">El flete bajó ${usd(s.fSave)}, pero los locales subieron ${usd(-s.lSave)}. La mejora real total es ${usd(s.tSave)}. Subieron: ${esc(s.up.join(', '))}.</p></div>` : ''}
       <div class="tablewrap"><table><thead><tr><th>${esc(s.k)}</th><th class="num">Inicial</th><th class="num">Final</th><th class="num">Ahorro</th><th class="num">Ahorro %</th></tr></thead><tbody>
         ${[['Ocean freight', s.f.freight, s.l.freight, s.fSave], ['Gastos en origen', s.f.locals, s.l.locals, s.lSave], ['Total', s.f.total, s.l.total, s.tSave]].map(([n, a, b, d]) =>
@@ -1450,7 +1498,7 @@ function emptyAirCharges() { return AIR_CHARGES.map(c => ({ code: c.code, desc: 
 function emptyAirRoute(origin) { return { id: uid(), origin, originRaw: '', dest: 'EZE', airline: '', transit: '', cur: 'USD', min: '', rates: {}, fuel: '', imo: '', imoOnRequest: false, destCharges: '', remarks: '', formulas: [] }; }
 function newAirVersion(week) {
   const req = state.airRequest, routes = req.routes.filter(r => r.on).map(r => emptyAirRoute(r.origin));
-  return { no: 1, date: todayISO(), week: week || req.week, validTo: req.to, source: 'Formulario', locked: false, routes, origin: Object.fromEntries(routes.map(r => [r.origin, emptyAirCharges()])) };
+  return { no: 1, tipo: 'Inicial', date: todayISO(), week: week || req.week, validTo: req.to, source: 'Formulario', locked: false, routes, origin: Object.fromEntries(routes.map(r => [r.origin, emptyAirCharges()])) };
 }
 function seedAir(s) {
   s.airRequest = { week: 'WK-2026-W41', from: '2026-10-05', to: '2026-10-11', deadline: '2026-10-06', routes: ['MIA','HKG','PVG','SZX','NGB','CAN'].map((o, i) => ({ origin: o, dest: 'EZE', on: i < 5 })) };
@@ -1481,6 +1529,13 @@ function seedAir(s) {
              mk('SZX', 'Emirates SkyCargo', 6, 230, { 45: 11.0, 100: 9.9, 300: 9.6, 500: 9.2, 1000: 9.0 }, 0.16, 0.05, 360, 'Camión a HKG'),
              mk('NGB', 'Emirates SkyCargo', 6, 230, { 45: 10.8, 100: 9.7, 300: 9.4, 500: 9.0, 1000: 8.9 }, 0.16, 0.05, 360, 'Camión a PVG')],
     origin: { PVG: ch(dCh), SZX: ch(dCh), NGB: ch(dCh) } }] });
+  const a3 = s.quotes.find(q => q.id === 'a3'), v2 = structuredClone(a3.versions[0]);
+  Object.assign(v2, { no: 2, tipo: 'Negociada', motivo: 'Mejora negociada', date: '2026-10-06', submittedAt: '2026-10-06', source: 'Formulario' });
+  v2.routes.forEach(r => { Object.keys(r.rates).forEach(b => { r.rates[b] = Math.round(r.rates[b] * 0.93 * 100) / 100; }); });
+  v2.origin = { PVG: ch({ ...dCh, HANDLING: 55, DOC: 60 }), SZX: ch({ ...dCh, HANDLING: 55, DOC: 60 }), NGB: ch({ ...dCh, HANDLING: 55, DOC: 60 }) };
+  a3.versions.push(v2); a3.status = 'renegotiated';
+  s.negotiations.push({ id: 'n2', quoteId: 'a3', fromVersion: 1, toVersion: 2, status: 'answered', at: '2026-10-05', message: 'Solicitamos revisar los conceptos indicados y enviar una nueva versión.',
+    items: [{ label: 'Shanghai - PVG · Tarifa 500 kg', quoted: 8.7, max: 8.1, quotedLabel: 'USD 8,7/kg', maxLabel: 'USD 8,1/kg' }] });
   s.audit.push({ at: '2026-10-05 10:05', user: 'Agente Demo E', action: 'Importó tarifario aéreo (Excel formato actual)', quote: 'A-2026-W41-0001', v: 1 });
 }
 
@@ -1939,8 +1994,9 @@ function viewAirMine() {
   const req = state.airRequest, mine = airQuotesOf(ui.role).slice().reverse(), thisWeek = mine.find(q => lastVersion(q).week === req.week);
   const card = q => { const v = lastVersion(q), [st, col] = AGENT_STATUS[q.status];
     const action = q.status === 'renegotiation_requested' ? `<button class="btn primary small" data-act="a-respond" data-id="${q.id}">Cargar nueva versión</button>`
-      : ['incomplete','draft'].includes(q.status) ? `<button class="btn primary small" data-act="a-edit" data-id="${q.id}">Completar</button>` : '';
-    return `<div class="quote-card"><div class="stack" style="gap:4px"><div class="row"><span class="mono">${esc(v.week)}</span>${pill(st, col)}</div>
+      : ['incomplete','draft'].includes(q.status) ? `<button class="btn primary small" data-act="a-edit" data-id="${q.id}">Completar</button>`
+      : canCorrect(q) ? `<button class="btn small" data-act="a-correct" data-id="${q.id}">Corregir un error</button>` : '';
+    return `<div class="quote-card"><div class="stack" style="gap:4px"><div class="row"><span class="mono">${esc(v.week)}</span>${pill(st, col)}${v.locked ? tipoPill(v) : ''}</div>
       <div class="route">${v.routes.map(r => esc(apLabel(r.origin))).join(' · ')} <span class="arrow">→</span> Buenos Aires - EZE</div>
       <div class="meta"><span>Vigencia hasta ${esc(v.validTo || '—')}</span><span>Versión ${v.no}</span><span>${esc(v.source)}</span></div></div>
       <div class="row">${action}<button class="btn small" data-act="a-agent-view" data-id="${q.id}">Ver</button></div></div>`; };
@@ -1956,7 +2012,9 @@ function openAirEditor(quoteId, mode) {
   let v, title;
   if (!quoteId) { v = newAirVersion(); title = `Tarifario ${v.week}`; }
   else { const q = state.quotes.find(x => x.id === quoteId), last = lastVersion(q); v = structuredClone(last);
-    if (mode === 'respond') { v.no = last.no + 1; v.locked = false; v.source = 'Formulario'; v.date = todayISO(); delete v.submittedAt; title = `Nueva versión ${v.no} · ${v.week}`; } else title = `Completar ${v.week}`; }
+    if (mode === 'respond' || mode === 'correct') { v.no = last.no + 1; v.locked = false; v.source = 'Formulario'; v.date = todayISO(); delete v.submittedAt;
+      v.tipo = mode === 'respond' ? 'Negociada' : tipoOf(last); v.motivo = mode === 'respond' ? 'Mejora negociada' : 'Corrección';
+      title = `${mode === 'respond' ? 'Tarifa negociada' : 'Corrección'} · ${v.week}`; } else title = `Completar ${v.week}`; }
   ui.airEditor = { quoteId, mode: mode || 'new', title, v, tab: v.routes[0]?.origin };
   go('a-editor');
 }
@@ -1971,6 +2029,7 @@ function viewAirEditor() {
   const num = (attr, val, bad, label, step = '0.01') => `<input type="number" min="0" step="${step}" ${attr} value="${esc(val ?? '')}" class="${bad ? 'bad' : ''}" aria-label="${esc(label)}">`;
   return `<div class="page-head"><div><button class="linkbtn" data-nav="a-mis">← Tarifario aéreo</button><h1 style="margin-top:6px">${esc(E.title)}</h1><p>Tarifa general de la semana por ruta, y gastos en origen por aeropuerto.</p></div></div>
     ${neg ? `<div class="alert warn"><b class="t">Conceptos que BIDCOM pidió revisar</b><ul>${neg.items.map(it => `<li>${esc(it.label)}: cotizado ${esc(it.quotedLabel || usd(it.quoted))}, objetivo requerido ≤ ${esc(it.maxLabel || usd(it.max))}</li>`).join('')}</ul></div>` : ''}
+    ${tipoBanner(E.mode, v)}
     ${importantPanel('air', true)}
     <div class="editor-layout"><div class="stack" style="gap:16px">
       <section class="panel"><div class="section-title"><span class="step">1</span><h2>Vigencia</h2></div><div class="fields">
@@ -2040,14 +2099,15 @@ function commitAirEditor(send) {
   v.submittedAt = todayISO();
   if (validateAirVersion(v).length) { q.status = 'incomplete'; log('Envió tarifario aéreo incompleto', q, v.no); toast('Enviado con datos faltantes'); ui.airEditor = null; go('a-ver', { agentDetailId: q.id }); return; }
   v.locked = true;
-  if (E.mode === 'respond') { const n = feedbackFor(q).find(x => x.status === 'requested'); if (n) { n.status = 'answered'; n.toVersion = v.no; } q.status = 'renegotiated'; log(`Envió versión ${v.no} (aéreo renegociado)`, q, v.no); }
-  else { const ev = v.routes.map(r => airEvaluate(r, v)); q.status = ev.every(e => e.light === 'green') ? 'within_target' : 'needs_renegotiation'; log('Envió tarifario aéreo', q, v.no); }
+  if (E.mode === 'respond') { const n = feedbackFor(q).find(x => x.status === 'requested'); if (n) { n.status = 'answered'; n.toVersion = v.no; } q.status = 'renegotiated'; log(`Envió versión ${v.no} (aéreo, tarifa negociada)`, q, v.no); }
+  else if (tipoOf(v) === 'Negociada') { q.status = 'renegotiated'; log(`Envió versión ${v.no} (aéreo, corrección de la negociada)`, q, v.no); }
+  else { const ev = v.routes.map(r => airEvaluate(r, v)); q.status = ev.every(e => e.light === 'green') ? 'within_target' : 'needs_renegotiation'; log(E.mode === 'correct' ? `Envió versión ${v.no} (aéreo, corrección de la inicial)` : 'Envió tarifario aéreo (tarifa inicial)', q, v.no); }
   ui.airEditor = null; toast('Tarifario enviado a BIDCOM'); go('a-ver', { agentDetailId: q.id });
 }
 function viewAirAgentDetail() {
   const q = state.quotes.find(x => x.id === ui.agentDetailId && x.agent === ui.role && x.mode === 'air'); if (!q) return '<p class="empty">No encontrado.</p>';
   const v = lastVersion(q), [st, col] = AGENT_STATUS[q.status], issues = q.status === 'incomplete' ? validateAirVersion(v) : [], neg = feedbackFor(q).find(n => n.status === 'requested');
-  return `<div class="page-head"><div><button class="linkbtn" data-nav="a-mis">← Tarifario aéreo</button><h1 style="margin-top:6px">Tarifario ${esc(v.week)}</h1></div>${pill(st, col)}</div>
+  return `<div class="page-head"><div><button class="linkbtn" data-nav="a-mis">← Tarifario aéreo</button><h1 style="margin-top:6px">Tarifario ${esc(v.week)}</h1></div><div class="row">${tipoPill(v)}${pill(st, col)}</div></div>
     ${issues.length ? `<div class="alert bad"><b class="t">Información incompleta: faltan ${issues.length} dato(s)</b><ul>${issues.map(i => `<li>${esc(i.msg)}</li>`).join('')}</ul><div><button class="btn primary small" data-act="a-edit" data-id="${q.id}">Completar ahora</button></div></div>` : ''}
     ${neg ? `<section class="panel" style="border-color:var(--neg)"><header><h2>BIDCOM solicita mejorar tu propuesta</h2><span class="muted small">${esc(neg.at)}</span></header><p class="muted">${esc(neg.message)}</p>
       <div style="margin-top:8px">${neg.items.map(it => `<div class="feedback-item"><b>${esc(it.label)}</b><span class="muted small">Cotizado ${esc(it.quotedLabel || usd(it.quoted))}</span><span>Objetivo requerido <b>≤ ${esc(it.maxLabel || usd(it.max))}</b></span></div>`).join('')}</div>
@@ -2073,6 +2133,27 @@ function airOriginReadOnly(v) {
 }
 
 // ---- Vistas aéreas: BIDCOM ----
+// Negociación aérea: tarifa inicial contra la última negociada, ruta por ruta (all-in al peso de referencia)
+function airNegotiation(q) {
+  const a = initialVersion(q), b = lastVersion(q), W = state.settings.airRefWeight;
+  if (a === b || tipoOf(b) !== 'Negociada') return [];
+  return b.routes.map(r => {
+    const ra = a.routes.find(x => x.origin === r.origin);
+    if (!ra || validateAirRoute(ra, a.origin[ra.origin], 0).length || validateAirRoute(r, b.origin[r.origin], 0).length) return null;
+    const ia = airAllIn(ra, a.origin[ra.origin], W), ib = airAllIn(r, b.origin[r.origin], W);
+    return { q, origin: r.origin, ini: ia, fin: ib, save: ia.perKg - ib.perKg, pct: (ia.perKg - ib.perKg) / ia.perKg * 100, origSave: ia.origin - ib.origin, rondas: b.no - a.no };
+  }).filter(Boolean);
+}
+function airNegotiationTable(rows, withAgent) {
+  return `<div class="tablewrap"><table><thead><tr>${withAgent ? '<th>Agente</th>' : ''}<th>Origen</th><th class="num">Tarifa ${state.settings.airRefWeight} kg inicial</th><th class="num">Negociada</th><th class="num">All-in inicial</th><th class="num">All-in negociado</th><th class="num">Ahorro USD/kg</th><th class="num">Ahorro %</th><th class="num">Ahorro gastos en origen</th></tr></thead><tbody>
+    ${rows.map(x => `<tr ${withAgent ? `class="clickable" data-act="a-open" data-id="${x.q.id}"` : ''}>${withAgent ? `<td>${esc(AGENTS[x.q.agent].name)}</td>` : ''}<td>${esc(apLabel(x.origin))}</td><td class="num">${n4(x.ini.rate)}</td><td class="num">${n4(x.fin.rate)}</td>
+      <td class="num">${nf2.format(Math.round(x.ini.perKg * 100) / 100)}</td><td class="num"><b>${nf2.format(Math.round(x.fin.perKg * 100) / 100)}</b></td>
+      <td class="num ${x.save >= 0 ? 'gap-neg' : 'gap-pos'}">${signed(Math.round(x.save * 100) / 100)}</td><td class="num ${x.save >= 0 ? 'gap-neg' : 'gap-pos'}">${pct(x.pct)}</td><td class="num">${usd(x.origSave)}</td></tr>`).join('')}</tbody></table></div>`;
+}
+function airNegotiationPanel(q) {
+  const rows = airNegotiation(q); if (!rows.length) return '';
+  return `<section class="panel"><header><h2>Resultado de la negociación</h2><span class="muted small">Tarifa inicial (v${initialVersion(q).no}) contra tarifa negociada (v${lastVersion(q).no}) · la inicial queda guardada</span></header>${airNegotiationTable(rows, false)}</section>`;
+}
 function airEvaluate(r, v) {
   const W = state.settings.airRefWeight, st = airHistStats(r.origin, W), a = airAllIn(r, v.origin[r.origin], W);
   const target = st ? st.allin.med * (1 - state.settings.airReduction / 100) : null;
@@ -2089,10 +2170,13 @@ function viewAirComp() {
   const answered = new Set(weekQuotes.filter(q => q.status !== 'draft').map(q => q.agent));
   const pending = Object.keys(AGENTS).filter(a => !answered.has(a));
   const origins = req.routes.filter(r => r.on).map(r => r.origin);
+  const negRows = weekQuotes.flatMap(airNegotiation);
   return `<div class="page-head"><div><h1>Comparativo aéreo semanal</h1><p>Semana ${esc(req.week)} (${esc(req.from)} al ${esc(req.to)}). Todo se compara en USD por kg a ${W} kg, contra la mediana histórica con objetivo −${S.airReduction}%.</p></div></div>
     <div class="kpis"><div class="kpi"><span class="label">Respondieron</span><span class="v">${answered.size} de ${Object.keys(AGENTS).length}</span><span class="s">Falta: ${esc(pending.map(a => AGENTS[a].name).join(', ') || 'nadie')}</span></div>
       <div class="kpi"><span class="label">Incompletos</span><span class="v" style="color:var(--bad)">${weekQuotes.filter(q => q.status === 'incomplete').length}</span></div>
-      <div class="kpi"><span class="label">Respuesta hasta</span><span class="v" style="font-size:19px">${esc(req.deadline)}</span></div></div>
+      <div class="kpi"><span class="label">Respuesta hasta</span><span class="v" style="font-size:19px">${esc(req.deadline)}</span></div>
+      <div class="kpi"><span class="label">Rutas negociadas</span><span class="v">${negRows.length}</span><span class="s">${negRows.length ? 'Ahorro promedio ' + pct(negRows.reduce((s, x) => s + x.pct, 0) / negRows.length) + ' en all-in' : 'Todavía no hay tarifas negociadas'}</span></div></div>
+    ${negRows.length ? `<section class="panel"><header><h2>Negociación de la semana</h2><span class="muted small">Tarifa inicial contra negociada. Las dos quedan guardadas.</span></header>${airNegotiationTable(negRows, true)}</section>` : ''}
     ${origins.map(o => { const st = airHistStats(o, W), target = st ? st.allin.med * (1 - S.airReduction / 100) : null;
       const rows = weekQuotes.flatMap(q => { const v = lastVersion(q); return v.routes.filter(r => r.origin === o).map(r => ({ q, v, r, ok: !validateAirRoute(r, v.origin[r.origin], 0).length })); })
         .map(x => ({ ...x, e: x.ok ? airEvaluate(x.r, x.v) : null })).sort((a, b) => (a.e?.a.perKg ?? 1e9) - (b.e?.a.perKg ?? 1e9));
@@ -2110,7 +2194,8 @@ function viewAirDetail() {
   const v = lastVersion(q), issues = validateAirVersion(v), warns = airWarnings(v), W = state.settings.airRefWeight;
   const evals = v.routes.filter(r => !validateAirRoute(r, v.origin[r.origin], 0).length).map(r => airEvaluate(r, v));
   const canAct = !['approved','rejected'].includes(q.status) && !issues.length;
-  return `<div class="page-head"><div><button class="linkbtn" data-nav="a-comp">← Comparativo aéreo</button><h1 style="margin-top:6px">${esc(AGENTS[q.agent].name)} · ${esc(v.week)}</h1><p>Versión ${v.no} · ${esc(v.source)} · vigencia hasta ${esc(v.validTo)}</p></div>${pill(STATUS[q.status], STATUS_COLOR[q.status])}</div>
+  return `<div class="page-head"><div><button class="linkbtn" data-nav="a-comp">← Comparativo aéreo</button><h1 style="margin-top:6px">${esc(AGENTS[q.agent].name)} · ${esc(v.week)}</h1><p>Versión ${v.no} · ${esc(v.source)} · vigencia hasta ${esc(v.validTo)}</p></div><div class="row">${tipoPill(v)}${pill(STATUS[q.status], STATUS_COLOR[q.status])}</div></div>
+    ${airNegotiationPanel(q)}
     ${canAct ? `<div class="row">${q.status !== 'renegotiation_requested' ? `<button class="btn primary" data-act="open-composer" data-id="${q.id}">Solicitar mejora</button>` : '<span class="muted small">Mejora solicitada: esperando respuesta.</span>'}
       <button class="btn" data-act="set-status" data-s="shortlist" data-id="${q.id}">Shortlist</button><button class="btn" data-act="set-status" data-s="approved" data-id="${q.id}">Aprobar</button><button class="btn danger" data-act="set-status" data-s="rejected" data-id="${q.id}">Rechazar</button></div>` : ''}
     ${ui.composer?.quoteId === q.id ? renegComposer(q) : ''}
@@ -2181,6 +2266,8 @@ document.addEventListener('click', e => {
     case 'agent-view': go('ver', { agentDetailId: id }); break;
     case 'edit': openEditor(id, 'edit'); break;
     case 'respond': openEditor(id, 'respond'); break;
+    case 'correct': openEditor(id, 'correct'); break;
+    case 'a-correct': openAirEditor(id, 'correct'); break;
     case 'new-form': openEditor(null); break;
     case 'add-route': ui.editor.v.routes.push(emptyRoute()); render(); break;
     case 'submit': commitEditor(true); break;
@@ -2225,6 +2312,7 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('change', e => {
   const t = e.target;
+  if (t.id === 'tema') { applyTheme(t.value); try { localStorage.setItem('bidcom-tema', t.value); } catch (e) {} return; }
   if (t.id === 'role') { ui.role = t.value; ui.editor = null; ui.airEditor = null; ui.composer = null; ui.importResult = null; go(homeView()); return; }
   if (t.dataset?.note) { const [m, i] = t.dataset.note.split(':'); const v = t.value.trim(); if (v) state.settings.notes[m][+i] = v; else state.settings.notes[m].splice(+i, 1); log('Editó indicaciones para agentes (' + (m === 'air' ? 'aéreo' : 'marítimo') + ')'); render(); return; }
   if (t.id === 'req-week' || t.id === 'req-from' || t.id === 'req-to' || t.id === 'req-deadline') { state.airRequest[t.id.slice(4)] = t.value; render(); return; }
@@ -2245,6 +2333,8 @@ document.addEventListener('drop', e => { const d = e.target.closest?.('#drop'); 
 function homeView() { return ui.mode === 'air' ? (ui.role === 'BIDCOM' ? 'a-comp' : 'a-mis') : (ui.role === 'BIDCOM' ? 'dash' : 'mis'); }
 $('#reset').onclick = () => { state = seedState(); Object.assign(ui, { editor: null, airEditor: null, composer: null, importResult: null }); go(homeView()); toast('Demo reiniciada'); };
 
+function applyTheme(v) { if (v === 'light' || v === 'dark') document.documentElement.setAttribute('data-theme', v); else document.documentElement.removeAttribute('data-theme'); }
+(function () { let v = 'auto'; try { v = localStorage.getItem('bidcom-tema') || 'auto'; } catch (e) {} applyTheme(v); $('#tema').value = v; })();
 load();
 loadAirSample();
 render();
