@@ -55,7 +55,8 @@ p { margin: 0; }
 .brand { display: flex; align-items: baseline; gap: 8px; }
 .version-tag { font: inherit; font-size: 11.5px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border: 0; border-radius: 999px; padding: 2px 9px; cursor: pointer; }
 .news h3 { margin-top: 4px; }
-.news ul { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.news ul, .news ol { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.news ol.flujo li::marker { font-weight: 700; color: var(--accent); }
 .news .when { font-family: var(--font-data); font-size: 12px; color: var(--muted); }
 .modes { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; padding: 3px; gap: 2px; background: var(--sunken); margin-right: auto; }
 .mode-btn { font: inherit; font-weight: 600; font-size: 13px; border: 0; background: none; color: var(--muted); padding: 6px 14px; border-radius: 6px; cursor: pointer; }
@@ -194,7 +195,7 @@ td input, td select { padding: 5px 7px; font-size: 13px; }
 
 <div class="topbar">
   <div class="topbar-in">
-    <div class="brand"><b>Tarifador BIDCOM</b><button type="button" class="version-tag" data-nav="novedades" title="Ver novedades">Versión 1.5 · 07/10/2026</button></div>
+    <div class="brand"><b>Tarifador BIDCOM</b><button type="button" class="version-tag" data-nav="novedades" title="Ver novedades">Versión 1.6 · 07/10/2026</button></div>
     <div class="modes" role="group" aria-label="Modo de transporte"><button type="button" class="mode-btn" data-mode-switch="sea">Marítimo</button><button type="button" class="mode-btn" data-mode-switch="air">Aéreo</button></div>
     <div class="who">
       <span class="demo-tag">Prototipo · datos ficticios</span>
@@ -663,9 +664,9 @@ function buildTemplate(example = true) {
    ===================================================================== */
 function validateVersion(v) {
   const issues = [];
-  if (!v.validFrom) issues.push({ field: 'Validez desde', msg: 'Falta la fecha de validez desde' });
-  if (!v.validTo) issues.push({ field: 'Validez hasta', msg: 'Falta la fecha de validez hasta' });
-  if (v.validFrom && v.validTo && v.validTo < v.validFrom) issues.push({ field: 'Validez', msg: 'Validez hasta es anterior a validez desde' });
+  if (!v.validFrom) issues.push({ field: 'Vigencia desde', msg: 'Falta la vigencia desde' });
+  if (!v.validTo) issues.push({ field: 'Vigencia hasta', msg: 'Falta la vigencia hasta' });
+  if (v.validFrom && v.validTo && v.validTo < v.validFrom) issues.push({ field: 'Vigencia', msg: 'La vigencia hasta es anterior a la vigencia desde' });
   if (!v.routes.length) issues.push({ field: 'Ruta', msg: 'Agregá al menos una ruta' });
   v.routes.forEach((r, i) => {
     const p = v.routes.length > 1 ? `Ruta ${i + 1}: ` : '';
@@ -869,11 +870,27 @@ const GH = 'https://github.com/solp-boop/tarifador-bidcom/blob/main/google-sheet
 function viewNews() {
   const item = (fecha, version, titulo, puntos) => `<section class="panel news"><span class="when">${fecha} · versión ${version}</span><h3>${titulo}</h3><ul>${puntos.map(x => `<li>${x}</li>`).join('')}</ul></section>`;
   return `<div class="page-head"><div><h1>Novedades</h1><p>Todos los cambios se ven en este mismo link. Si no ves algo nuevo, recargá la página (F5). El número de versión arriba a la izquierda te dice qué versión estás viendo.</p></div></div>
+    <section class="panel news"><span class="when">07/10/2026 · versión 1.6</span><h3>Cómo circula una tarifa</h3>
+      <ol class="flujo">
+        <li><b>El agente carga</b> en su link, con su vigencia (1 semana, 15 días o 1 mes). Nunca ve a otros agentes, la menor, la mediana ni el target.</li>
+        <li><b>Se pega sola</b> en <b>Cotizaciones Maritimos SIN NEGOCIAR</b>, en las filas vacías debajo del histórico. <b>Al team le llega un mail</b> con la comparación.</li>
+        <li><b>El team decide</b> en la planilla: Aprobar, Pedir mejora o Descartar. Al agente no le llega nada hasta que el team envía las decisiones.</li>
+        <li><b>El agente recibe el pedido de mejora</b> por mail con su link. Al entrar, ve qué rutas mejorar (y el valor objetivo, si el team lo decide).</li>
+        <li><b>Responde</b>: la tarifa mejorada va a <b>Cotizaciones Maritimos Negociado</b>, con el ahorro calculado. El team recibe otro mail.</li>
+        <li><b>5 días antes del vencimiento</b>, el agente recibe un mail para cargar la tarifa nueva, con copia al team.</li>
+      </ol></section>
+    ${item('07/10/2026', '1.6', 'Aprobación del team, target sin revelar y aviso de vencimiento', [
+      'En la base madre solo se escribe en <b>Cotizaciones Maritimos SIN NEGOCIAR</b> (inicial) y <b>Cotizaciones Maritimos Negociado</b> (negociada), en las filas vacías debajo del histórico. No se crean pestañas ahí.',
+      'Todo lo demás vive en <b>dos pestañas nuevas</b> de la copia: <b>TARIFADOR Ajustes</b> (mails del team, agentes y sus links, rutas, listas y registro) y <b>TARIFADOR Cotizaciones</b> (cada tarifa recibida, la comparación, la decisión del team y el ahorro). Las 12 pestañas de la versión anterior se pasan solas y se borran u ocultan.',
+      '<b>Primero recibimos, después negociamos.</b> Al agente no se le dice cuánto queremos pagar al cargar. En cada ruta y contenedor se marca la <b>menor de la ronda</b>.',
+      '<b>Target sugerido</b>: a quien cotizó la menor se le pide −15% (configurable); al resto, igualar la menor. La mediana histórica queda como control en el semáforo. El team puede cambiar el valor antes de pedir la mejora, y elegir si el agente ve el objetivo o no. Nunca se le dice que viene de otro agente.',
+      'Mails automáticos: al <b>team</b> cuando un agente carga o responde; al <b>agente</b> cuando el team pide una mejora; y al agente (con copia al team) <b>5 días antes del vencimiento</b>.',
+      '<b>Vigencia desde / hasta</b> en marítimo y aéreo, con botones de 1 semana, 15 días o 1 mes. El pegado acepta tanto "Validez Quincena Desde" como "Vigencia desde" en la base madre.'])}
     ${item('07/10/2026', '1.5', 'Marítimo en el link del agente y una sola forma de carga', [
       'Se sacó <b>Subir Excel</b>: el agente carga siempre en su formulario. Ya no hay dos formas de cargar lo mismo.',
       'Marítimo pide <b>Locales ARG</b> (referencia aceptada USD 800: si cotizan más, se les avisa y BIDCOM lo ve marcado), <b>Recarga IMO</b>, <b>Fuel adjust</b> y <b>Adicional puertos internos</b>.',
       'En la planilla de Google el link del agente tiene dos pestañas, <b>Marítimo</b> y <b>Aéreo</b>. Marítimo se carga por quincena y se pega solo en tu base madre: la tarifa inicial en <b>Cotizaciones Maritimos SIN NEGOCIAR</b> y la negociada en <b>Cotizaciones Maritimos Negociado</b>, con tus mismas columnas (una fila por contenedor; 40ST y 40HQ al mismo valor van como 40ST/40HQ).',
-      'Pestaña nueva <b>Negociación marítima</b>: flete, Locales ARG y total, inicial contra negociado, con el ahorro.'])}
+      'Inicial contra negociado y ahorro por ruta y contenedor (desde la 1.6, dentro de TARIFADOR Cotizaciones).'])}
     ${item('07/10/2026', '1.4', 'Tarifa inicial y negociada en un solo lugar', [
       'Cada envío queda marcado como <b>Tarifa inicial</b> o <b>Tarifa negociada</b>. Ya no hace falta separar en dos lugares: la inicial nunca se pisa.',
       'El agente puede <b>Corregir un error</b> de un envío: reemplaza el envío con error y no cuenta como negociación.',
@@ -884,11 +901,11 @@ function viewNews() {
     ${item('07/10/2026', '1.3', 'Plantillas Excel con colores (reemplazadas en la 1.5 por el formulario)', ['Se armaron plantillas con colores y control de datos. Desde la versión 1.5 el agente no sube Excel: carga en su formulario.'])}
     ${item('05/10/2026', '1.2', 'Módulo aéreo', ['Solicitud semanal, tarifario por ruta con breaks de peso, gastos en origen por aeropuerto (fijo o por kg con mínimo) y comparativo en USD por kg.'])}
     <section class="panel news"><span class="when">Planilla de Google · la herramienta real</span><h3>Formulario por link para cada agente</h3>
-      <p class="muted" style="margin-top:6px">Esta página es el prototipo para ver y ajustar el diseño (datos ficticios, se guardan solo en tu navegador). La carga real de tarifas aéreas funciona en tu planilla de Google: cada agente entra con su link, ve solo lo suyo y lo que envía queda guardado en la planilla y se pega en la base madre.</p>
+      <p class="muted" style="margin-top:6px">Esta página es el prototipo para ver y ajustar el diseño (datos ficticios, se guardan solo en tu navegador). La carga real funciona en tu planilla de Google: cada agente entra con su link, ve solo lo suyo, y lo que envía queda en la planilla y se pega en la base madre.</p>
       <ul>
-        <li>Envíos con <b>tipo de tarifa</b> (inicial o negociada) y motivo de reenvío (corrección o mejora).</li>
-        <li>Pestaña <b>Negociación aérea</b>: inicial contra negociada y ahorro de cada agente y ruta. Se rearma desde el historial de envíos, que nunca se borra.</li>
-        <li>Pegado en la <b>base madre</b> sin pisar la inicial: en la misma pestaña (con columna "Tipo de tarifa" o con "Tarifa negociada." en Observaciones) o en una pestaña aparte para negociadas.</li>
+        <li>Menú <b>Tarifador BIDCOM</b>: 1. Preparar hojas · 2. Generar links · 3. Verificar la base madre · 4. Activar aviso diario de vencimientos · Enviar decisiones del team.</li>
+        <li><b>TARIFADOR Cotizaciones</b>: una fila por tarifa, con versión, tipo (inicial o negociada), menor de la ronda, mediana histórica, target sugerido, semáforo, estado, decisión del team, ahorro e historial. Nunca se borra.</li>
+        <li>Pegado en la <b>base madre</b> por nombre de columna, respetando las fórmulas (por ejemplo "Total flete cif" se copia de la fila de arriba).</li>
         <li>Archivos para pegar en Apps Script: <a href="${GH}Code.gs" target="_blank" rel="noopener">Code.gs</a> y <a href="${GH}Index.html" target="_blank" rel="noopener">Index.html</a>.</li>
       </ul></section>`;
 }
@@ -906,7 +923,7 @@ function viewMine() {
     return `<div class="quote-card"><div class="stack" style="gap:4px">
       <div class="row"><span class="mono">#${esc(q.number)}</span>${pill(st, col)}${v.locked ? tipoPill(v) : ''}</div>
       <div>${v.routes.map(routeTitle).join('<span class="muted"> · </span>')}</div>
-      <div class="meta"><span>${esc(conts || 'sin contenedores')}</span><span>Validez ${esc(v.validFrom || '—')} al ${esc(v.validTo || '—')}</span><span>Versión ${v.no}</span><span>${esc(v.source)}</span></div></div>
+      <div class="meta"><span>${esc(conts || 'sin contenedores')}</span><span>Vigencia ${esc(v.validFrom || '—')} al ${esc(v.validTo || '—')}</span><span>Versión ${v.no}</span><span>${esc(v.source)}</span></div></div>
       <div class="row">${action}<button class="btn small" data-act="agent-view" data-id="${q.id}">Ver</button></div></div>`;
   };
   return `<div class="page-head"><div><h1>Mis cotizaciones</h1><p>Solo ves tus propias cotizaciones y las respuestas de BIDCOM sobre ellas.</p></div>
@@ -923,7 +940,7 @@ function viewAgentDetail() {
   return `<div class="page-head"><div><button class="linkbtn" data-nav="mis">← Mis cotizaciones</button><h1 style="margin-top:6px">Cotización #${esc(q.number)}</h1></div><div class="row">${pill(st, col)}</div></div>
     ${issues.length ? `<div class="alert bad"><b class="t">Información incompleta: faltan ${issues.length} dato(s)</b><ul>${issues.map(i => `<li>${esc(i.msg)}</li>`).join('')}</ul><div><button class="btn primary small" data-act="edit" data-id="${q.id}">Completar ahora</button></div></div>` : ''}
     ${neg ? agentFeedbackPanel(q, neg) : ''}
-    <section class="panel"><header><h2>Versión ${v.no}</h2><span class="muted small">Validez ${esc(v.validFrom || '—')} al ${esc(v.validTo || '—')} · ${esc(v.source)}</span></header>
+    <section class="panel"><header><h2>Versión ${v.no}</h2><span class="muted small">Vigencia ${esc(v.validFrom || '—')} al ${esc(v.validTo || '—')} · ${esc(v.source)}</span></header>
       ${v.routes.map(r => routeReadOnly(r)).join('')}</section>
     ${q.versions.length > 1 ? `<section class="panel"><h2>Versiones enviadas</h2><div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>Versión</th><th>Fecha</th>${CONTAINERS.map(c => `<th class="num">${c}</th>`).join('')}</tr></thead><tbody>
       ${q.versions.map(x => `<tr><td>v${x.no} ${tipoPill(x)}</td><td>${esc(x.submittedAt || x.date)}</td>${CONTAINERS.map(c => { const f = x.routes[0]?.freight[c]; return `<td class="num">${f && f.amt ? usd(toBase(f.amt, f.cur)) : '—'}</td>`; }).join('')}</tr>`).join('')}</tbody></table></div></section>` : ''}`;
@@ -955,6 +972,9 @@ function viewNew() {
       <div class="option"><span class="n">Opción 2</span><h2>Subir Excel</h2><p class="muted">Descargá la plantilla BIDCOM, completala y subila. También aceptamos el formato que usás hoy, y te marcamos qué falta.</p><div><button class="btn" data-nav="importar">Ir a importar</button></div></div>
     </div>`;
 }
+function sumarDiasISO(s, k) { const d = new Date(s + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + k); return d.toISOString().slice(0, 10); }
+function hastaPorDuracion(desde, k) { if (k !== 'mes') return sumarDiasISO(desde, Number(k) - 1); const d = new Date(desde + 'T00:00:00Z'); const e = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate())); e.setUTCDate(e.getUTCDate() - 1); return e.toISOString().slice(0, 10); }
+function durActiva(v) { if (!v.validFrom || !v.validTo) return ''; return ['7', '15', 'mes'].find(k => hastaPorDuracion(v.validFrom, k) === v.validTo) || ''; }
 function newDraftVersion() { return { no: 1, tipo: 'Inicial', date: todayISO(), validFrom: '', validTo: '', source: 'Formulario', locked: false, routes: [emptyRoute()] }; }
 function openEditor(quoteId, mode) {
   let v, title;
@@ -986,8 +1006,10 @@ function viewEditor() {
     <div class="editor-layout"><div class="stack" style="gap:16px">
       <section class="panel"><div class="section-title"><span class="step">1</span><h2>Vigencia</h2></div>
         <div class="fields"><label class="f">Fecha de cotización<input type="date" id="e-date" value="${esc(v.date)}"></label>
-        <label class="f">Validez desde<input type="date" id="e-vf" value="${esc(v.validFrom)}" class="${v.validFrom ? '' : 'bad'}"></label>
-        <label class="f">Validez hasta<input type="date" id="e-vt" value="${esc(v.validTo)}" class="${v.validTo ? '' : 'bad'}"></label></div></section>
+        <label class="f">Vigencia desde<input type="date" id="e-vf" value="${esc(v.validFrom)}" class="${v.validFrom ? '' : 'bad'}"></label>
+        <label class="f">Vigencia hasta<input type="date" id="e-vt" value="${esc(v.validTo)}" class="${v.validTo ? '' : 'bad'}"></label></div>
+        <div class="chips" style="margin-top:10px;align-items:center"><span class="muted small">Duración:</span>${[['7','1 semana'],['15','15 días'],['mes','1 mes']].map(([k, t]) => `<button type="button" class="chip" data-dur="${k}" aria-pressed="${durActiva(v) === k}">${t}</button>`).join('')}</div>
+        <p class="small muted" style="margin:8px 0 0">Según el contexto la tarifa vale una semana, 15 días o un mes. 5 días antes del vencimiento el agente recibe un mail para cargar la nueva.</p></section>
       ${v.routes.map((r, i) => routeEditor(r, i, v.routes.length)).join('')}
       <div><button class="btn" data-act="add-route">+ Agregar otra ruta</button></div>
     </div>
@@ -1064,6 +1086,7 @@ function bindEditor() {
   $('#e-date').oninput = e => { E.v.date = e.target.value; };
   $('#e-vf').oninput = e => { E.v.validFrom = e.target.value; light(e.target, !!e.target.value); };
   $('#e-vt').oninput = e => { E.v.validTo = e.target.value; light(e.target, !!e.target.value); };
+  document.querySelectorAll('[data-dur]').forEach(b => b.onclick = () => { if (!E.v.validFrom) { E.v.validFrom = todayISO(); } E.v.validTo = hastaPorDuracion(E.v.validFrom, b.dataset.dur); rerender(); });
   document.querySelectorAll('[data-route]').forEach(card => {
     const r = E.v.routes[+card.dataset.route];
     card.querySelectorAll('[data-k]').forEach(el => {
@@ -1256,7 +1279,7 @@ function viewDetail() {
   const evals = issues.length ? [] : evaluateQuote(q, v);
   const composer = ui.composer?.quoteId === q.id ? renegComposer(q) : '';
   return `<div class="page-head"><div><button class="linkbtn" data-nav="cotiz">← Todas las cotizaciones</button>
-      <h1 style="margin-top:6px">#${esc(q.number)} · ${esc(AGENTS[q.agent].name)}</h1><p>Validez ${esc(v.validFrom || '—')} al ${esc(v.validTo || '—')} · cargada por ${esc(v.source)}</p></div>
+      <h1 style="margin-top:6px">#${esc(q.number)} · ${esc(AGENTS[q.agent].name)}</h1><p>Vigencia ${esc(v.validFrom || '—')} al ${esc(v.validTo || '—')} · cargada por ${esc(v.source)}</p></div>
       <div class="stack" style="align-items:flex-end;gap:8px">${pill(STATUS[q.status], STATUS_COLOR[q.status])}
       <div class="versions">${q.versions.map(x => `<button class="chip" data-act="pick-version" data-v="${x.no}" aria-pressed="${x.no === v.no}">v${x.no} · ${tipoOf(x) === 'Negociada' ? 'negociada' : 'inicial'}${x.motivo === 'Corrección' ? ' (corrección)' : ''}</button>`).join('')}</div></div></div>
     ${canAct && !issues.length && v.no === lastVersion(q).no ? `<div class="row">
@@ -2018,7 +2041,7 @@ function viewAirMine() {
       <div class="meta"><span>Vigencia hasta ${esc(v.validTo || '—')}</span><span>Versión ${v.no}</span><span>${esc(v.source)}</span></div></div>
       <div class="row">${action}<button class="btn small" data-act="a-agent-view" data-id="${q.id}">Ver</button></div></div>`; };
   return `<div class="page-head"><div><h1>Tarifario aéreo semanal</h1><p>Cada semana BIDCOM pide tu tarifa general por ruta. No hace falta un embarque real.</p></div></div>
-    <section class="panel" style="border-color:var(--accent)"><header><h2>Solicitud vigente · <span class="mono">${esc(req.week)}</span></h2><span class="muted small">Período ${esc(req.from)} al ${esc(req.to)} · responder hasta <b>${esc(req.deadline)}</b></span></header>
+    <section class="panel" style="border-color:var(--accent)"><header><h2>Solicitud vigente · <span class="mono">${esc(req.week)}</span></h2><span class="muted small">Vigencia ${esc(req.from)} al ${esc(req.to)} · responder hasta <b>${esc(req.deadline)}</b></span></header>
       <p>Rutas a cotizar: ${req.routes.filter(r => r.on).map(r => `<b>${esc(apLabel(r.origin))}</b>`).join(', ')} → Buenos Aires - EZE.</p>
       <div class="row" style="margin-top:12px">${thisWeek ? `<span>${pill('Ya respondiste esta semana: ' + AGENT_STATUS[thisWeek.status][0], AGENT_STATUS[thisWeek.status][1])}</span>` :
         `<button class="btn primary" data-act="a-new">Cargar tarifas</button>`}</div></section>
@@ -2262,8 +2285,8 @@ function viewAirRequest() {
   const R = state.airRequest;
   return `<div class="page-head"><div><h1>Solicitud semanal</h1><p>Lo que ven los agentes al entrar al tarifario aéreo. Al cambiar la semana, el modelo descargable se actualiza solo.</p></div></div>
     <section class="panel"><h2>Semana</h2><div class="fields" style="margin-top:12px">
-      <label class="f">Week ID<input id="req-week" value="${esc(R.week)}"></label><label class="f">Período desde<input type="date" id="req-from" value="${esc(R.from)}"></label>
-      <label class="f">Período hasta<input type="date" id="req-to" value="${esc(R.to)}"></label><label class="f">Respuesta hasta<input type="date" id="req-deadline" value="${esc(R.deadline)}"></label></div></section>
+      <label class="f">Week ID<input id="req-week" value="${esc(R.week)}"></label><label class="f">Vigencia desde<input type="date" id="req-from" value="${esc(R.from)}"></label>
+      <label class="f">Vigencia hasta<input type="date" id="req-to" value="${esc(R.to)}"></label><label class="f">Respuesta hasta<input type="date" id="req-deadline" value="${esc(R.deadline)}"></label></div></section>
     <section class="panel"><h2>Rutas a cotizar</h2><div class="stack" style="margin-top:12px;gap:8px">${R.routes.map((r, i) => `<label class="row" style="gap:10px"><input type="checkbox" data-req-route="${i}" ${r.on ? 'checked' : ''} style="width:auto"> ${esc(apLabel(r.origin))} → ${esc(apLabel(r.dest))}</label>`).join('')}</div></section>
     ${importantPanel('air')}
     <p class="small muted">Las indicaciones se editan en Configuración.</p>`;
