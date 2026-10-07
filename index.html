@@ -194,7 +194,7 @@ td input, td select { padding: 5px 7px; font-size: 13px; }
 
 <div class="topbar">
   <div class="topbar-in">
-    <div class="brand"><b>Tarifador BIDCOM</b><button type="button" class="version-tag" data-nav="novedades" title="Ver novedades">Versión 1.4 · 07/10/2026</button></div>
+    <div class="brand"><b>Tarifador BIDCOM</b><button type="button" class="version-tag" data-nav="novedades" title="Ver novedades">Versión 1.5 · 07/10/2026</button></div>
     <div class="modes" role="group" aria-label="Modo de transporte"><button type="button" class="mode-btn" data-mode-switch="sea">Marítimo</button><button type="button" class="mode-btn" data-mode-switch="air">Aéreo</button></div>
     <div class="who">
       <span class="demo-tag">Prototipo · datos ficticios</span>
@@ -386,7 +386,7 @@ const DEFAULT_SETTINGS = {
   freightReduction: 15, localReduction: 15, yellowMax: 5, orangeMax: 15, minObs: 5, windowMonths: 12, shiftRatio: 0.5,
   weights: { cost: 50, tt: 15, free: 15, direct: 10, compliance: 10 },
   scenario: { cbm: { '20ST': 28, '40ST': 58, '40HQ': 68, '40NOR': 58 }, tons: { '20ST': 10, '40ST': 12, '40HQ': 12, '40NOR': 12 } },
-  airReduction: 15, airRefWeight: 500,
+  airReduction: 15, airRefWeight: 500, localesArg: 800,
   notes: {
     sea: [
       'Completá la solapa Gastos en origen concepto por concepto, con moneda y unidad de cobro. No envíes un total de locales: BIDCOM usa este desglose como base para una negociación específica de gastos en origen.',
@@ -406,7 +406,7 @@ const DEFAULT_SETTINGS = {
 const REF_DATE = '2026-10-05';
 
 function emptyRoute() {
-  return { id: uid(), pol: '', polGroup: null, polRaw: '', pod: 'ARBUE', line: '', lineRaw: '', service: 'direct', transship: '', tt: '', payment: 'COLLECT', incoterm: 'FOB', remarks: '',
+  return { localesArg: '', imo: '', fuel: '', puertos: '', id: uid(), pol: '', polGroup: null, polRaw: '', pod: 'ARBUE', line: '', lineRaw: '', service: 'direct', transship: '', tt: '', payment: 'COLLECT', incoterm: 'FOB', remarks: '',
     freight: {}, locals: CHARGES.filter(c => c.cat === 'Fijo' && c.code !== 'DG').map(c => ({ id: uid(), code: c.code, desc: '', just: '', cur: 'USD', amt: '', unit: c.unit })) };
 }
 function stdLocals(vals) {   // vals: {HANDLING: [amt, unit?]...}
@@ -450,6 +450,8 @@ function seedState() {
                { at: '2026-10-02 15:05', user: 'BIDCOM', action: 'Solicitó renegociación', quote: '2026-0003', v: 1 },
                { at: '2026-10-03 10:22', user: 'Agente Demo C', action: 'Envió versión 2 (renegociada)', quote: '2026-0003', v: 2 },
                { at: '2026-10-03 16:48', user: 'Agente Demo D', action: 'Importó Excel (plantilla BIDCOM)', quote: '2026-0004', v: 1 });
+  // Las cotizaciones de ejemplo ya enviadas traen Locales ARG y recargos
+  s.quotes.forEach(q => q.versions.forEach(v => v.routes.forEach(r => { if (q.id !== 'q1' && r.localesArg === '') Object.assign(r, { localesArg: q.id === 'q4' ? 950 : 800, fuel: 50 }); })));
   seedAir(s);
   return s;
 }
@@ -468,10 +470,10 @@ function legacyKnRoutes() { return parseLegacy(KN_LEGACY_ROWS).routes; }
 let state;
 const ui = { role: 'BIDCOM', mode: 'sea', airEditor: null, view: 'dash', detailId: null, detailVersion: null, agentDetailId: null, editor: null, importResult: null, histPol: 'CNNGB', histC: '40HQ', mesaC: '40HQ', composer: null };
 function load() {
-  try { const raw = localStorage.getItem('tarifador-demo-public-v2'); if (raw) { state = JSON.parse(raw); return; } } catch (e) {}
+  try { const raw = localStorage.getItem('tarifador-demo-public-v3'); if (raw) { state = JSON.parse(raw); return; } } catch (e) {}
   state = seedState();
 }
-function save() { try { localStorage.setItem('tarifador-demo-public-v2', JSON.stringify(state)); } catch (e) {} }
+function save() { try { localStorage.setItem('tarifador-demo-public-v3', JSON.stringify(state)); } catch (e) {} }
 function log(action, q, v) {
   const who = ui.role === 'BIDCOM' ? 'BIDCOM' : AGENTS[ui.role].name;
   const d = new Date(); state.audit.unshift({ at: d.toISOString().slice(0, 16).replace('T', ' '), user: who, action, quote: q?.number || '', v: v ?? '' });
@@ -523,8 +525,7 @@ function parseLegacy(rows) {
     if (r['Dias libres'] === '' || r['Dias libres'] == null) errs.push('faltan Días libres');
     const vf = excelDate(r['Validez Quincena Desde']), vt = excelDate(r['Validez Quincena Hasta']);
     if (!vf || vf === 'INVALID' || !vt || vt === 'INVALID') errs.push('validez inválida o faltante');
-    if (r.Locales !== '' && r.Locales != null) errs.push(`Locales sin desglose (${usd(Number(r.Locales))}): cargar concepto por concepto`);
-    else errs.push('faltan gastos locales desglosados');
+    errs.push('faltan los gastos en origen desglosados (el formato actual no los trae)');
     warns.push('moneda asumida USD (no hay columna de moneda)');
     rowStatus.push({ rowNo, errs, warns, summary: `${r.POL || '—'} → ${r.POD || '—'} · ${r['Tipo Ctnr'] || '—'} · ${amt ? usd(amt) : '—'}` });
     errs.forEach(e => errors.push({ rowNo, msg: e })); warns.forEach(w => warnings.push({ rowNo, msg: w }));
@@ -532,7 +533,7 @@ function parseLegacy(rows) {
     if (!route) {
       route = { ...emptyRoute(), pol: pol.pol || '', polGroup: pol.polGroup || null, polRaw: r.POL || '', pod: pod.pol || '', line: line.line || '', lineRaw: r.Linea || '',
         service: norm(r.Transbordo) === 'SI' || norm(r['Tipo de Servicio']).includes('TRANS') ? 'transshipment' : 'direct', tt: Number(r.TT) || '',
-        payment: norm(r.Pagadero) || 'COLLECT', remarks: r.Comentarios || '', legacyLocals: Number(r.Locales) || null };
+        payment: norm(r.Pagadero) || 'COLLECT', remarks: r.Comentarios || '', localesArg: r.Locales === '' || r.Locales == null ? '' : Number(r.Locales) };
       route.locals = route.locals.map(l => ({ ...l, amt: '' }));
       byKey.set(k, route); routes.push(route);
     }
@@ -679,6 +680,7 @@ function validateVersion(v) {
     if (!fc.length) issues.push({ route: i, field: 'Flete', msg: p + 'Falta el flete de al menos un tipo de contenedor' });
     fc.forEach(([c, f]) => { if (f.free === '' || f.free == null) issues.push({ route: i, field: 'Días libres ' + c, msg: p + `Faltan días libres ${c}` }); if (!CURRENCIES[f.cur]) issues.push({ route: i, field: 'Moneda', msg: p + `Moneda inválida en ${c}` }); });
     (r.unmapped || []).forEach(u => issues.push({ route: i, field: 'Contenedor', msg: p + `Contenedor "${u.raw}" combina tipos: cotizar 40ST y 40HQ por separado` }));
+    if (r.localesArg === '' || r.localesArg == null || isNaN(Number(r.localesArg))) issues.push({ route: i, field: 'Locales ARG', msg: p + 'Faltan los Locales ARG' });
     const filled = r.locals.filter(l => l.amt !== '' && l.amt != null);
     if (!filled.length) issues.push({ route: i, field: 'Gastos en origen', msg: p + (r.legacyLocals ? `Gastos en origen sin desglose (${usd(r.legacyLocals)}): cargar concepto por concepto` : 'Faltan los gastos locales desglosados') });
     filled.forEach(l => {
@@ -831,7 +833,7 @@ function navItems() {
   if (ui.mode === 'air') {
     if (ui.role === 'BIDCOM') return [['a-comp','Comparativo semanal'],['a-solicitud','Solicitud semanal'],'sep',['config','Configuración'],['audit','Auditoría'],['novedades','Novedades']];
     const n = airQuotesOf(ui.role).filter(q => ['renegotiation_requested','incomplete'].includes(q.status)).length;
-    return [['a-mis','Tarifario semanal', n],['a-importar','Importar Excel'],'sep',['novedades','Novedades']];
+    return [['a-mis','Tarifario semanal', n],'sep',['novedades','Novedades']];
   }
   if (ui.role === 'BIDCOM') {
     const pend = state.quotes.filter(q => q.mode !== 'air' && ['submitted','in_review','needs_renegotiation','renegotiated'].includes(q.status)).length;
@@ -839,7 +841,7 @@ function navItems() {
   }
   const mine = state.quotes.filter(q => q.agent === ui.role && q.mode !== 'air');
   const needs = mine.filter(q => q.status === 'renegotiation_requested' || q.status === 'incomplete').length;
-  return [['mis','Mis cotizaciones', needs],['nueva','Nueva cotización'],['importar','Importar Excel'],'sep',['novedades','Novedades']];
+  return [['mis','Mis cotizaciones', needs],['nueva','Nueva cotización'],'sep',['novedades','Novedades']];
 }
 function render() {
   const roleSel = $('#role');
@@ -867,6 +869,11 @@ const GH = 'https://github.com/solp-boop/tarifador-bidcom/blob/main/google-sheet
 function viewNews() {
   const item = (fecha, version, titulo, puntos) => `<section class="panel news"><span class="when">${fecha} · versión ${version}</span><h3>${titulo}</h3><ul>${puntos.map(x => `<li>${x}</li>`).join('')}</ul></section>`;
   return `<div class="page-head"><div><h1>Novedades</h1><p>Todos los cambios se ven en este mismo link. Si no ves algo nuevo, recargá la página (F5). El número de versión arriba a la izquierda te dice qué versión estás viendo.</p></div></div>
+    ${item('07/10/2026', '1.5', 'Marítimo en el link del agente y una sola forma de carga', [
+      'Se sacó <b>Subir Excel</b>: el agente carga siempre en su formulario. Ya no hay dos formas de cargar lo mismo.',
+      'Marítimo pide <b>Locales ARG</b> (referencia aceptada USD 800: si cotizan más, se les avisa y BIDCOM lo ve marcado), <b>Recarga IMO</b>, <b>Fuel adjust</b> y <b>Adicional puertos internos</b>.',
+      'En la planilla de Google el link del agente tiene dos pestañas, <b>Marítimo</b> y <b>Aéreo</b>. Marítimo se carga por quincena y se pega solo en tu base madre: la tarifa inicial en <b>Cotizaciones Maritimos SIN NEGOCIAR</b> y la negociada en <b>Cotizaciones Maritimos Negociado</b>, con tus mismas columnas (una fila por contenedor; 40ST y 40HQ al mismo valor van como 40ST/40HQ).',
+      'Pestaña nueva <b>Negociación marítima</b>: flete, Locales ARG y total, inicial contra negociado, con el ahorro.'])}
     ${item('07/10/2026', '1.4', 'Tarifa inicial y negociada en un solo lugar', [
       'Cada envío queda marcado como <b>Tarifa inicial</b> o <b>Tarifa negociada</b>. Ya no hace falta separar en dos lugares: la inicial nunca se pisa.',
       'El agente puede <b>Corregir un error</b> de un envío: reemplaza el envío con error y no cuenta como negociación.',
@@ -874,8 +881,7 @@ function viewNews() {
       'Aéreo: nuevo panel <b>Negociación de la semana</b> en el Comparativo semanal y en cada tarifario (all-in inicial, negociado y ahorro). Para verlo: Aéreo, Ver como BIDCOM, Comparativo semanal.',
       'Marítimo: el detalle de cada cotización muestra inicial contra negociada y el ahorro en flete, gastos en origen y total.'])}
     ${item('07/10/2026', '1.4', 'Tema claro u oscuro', ['Arriba a la derecha, en <b>Tema</b>, cada persona elige Claro, Oscuro o Automático. Queda guardado en su navegador. El formulario del agente en la planilla de Google también tiene el selector.'])}
-    ${item('07/10/2026', '1.3', 'Plantillas Excel con colores', ['Botones <b>Descargar modelo</b> y <b>Descargar ejemplo completo</b> (en Nueva cotización e Importar Excel): amarillo obligatorio, celeste opcional, listas desplegables, notas en cada encabezado y una columna Control que avisa qué falta.',
-      'La solapa <b>Gastos en origen</b> está destacada y trae los conceptos precargados.'])}
+    ${item('07/10/2026', '1.3', 'Plantillas Excel con colores (reemplazadas en la 1.5 por el formulario)', ['Se armaron plantillas con colores y control de datos. Desde la versión 1.5 el agente no sube Excel: carga en su formulario.'])}
     ${item('05/10/2026', '1.2', 'Módulo aéreo', ['Solicitud semanal, tarifario por ruta con breaks de peso, gastos en origen por aeropuerto (fijo o por kg con mínimo) y comparativo en USD por kg.'])}
     <section class="panel news"><span class="when">Planilla de Google · la herramienta real</span><h3>Formulario por link para cada agente</h3>
       <p class="muted" style="margin-top:6px">Esta página es el prototipo para ver y ajustar el diseño (datos ficticios, se guardan solo en tu navegador). La carga real de tarifas aéreas funciona en tu planilla de Google: cada agente entra con su link, ve solo lo suyo y lo que envía queda guardado en la planilla y se pega en la base madre.</p>
@@ -904,7 +910,7 @@ function viewMine() {
       <div class="row">${action}<button class="btn small" data-act="agent-view" data-id="${q.id}">Ver</button></div></div>`;
   };
   return `<div class="page-head"><div><h1>Mis cotizaciones</h1><p>Solo ves tus propias cotizaciones y las respuestas de BIDCOM sobre ellas.</p></div>
-    <div class="row"><button class="btn" data-nav="importar">Importar Excel</button><button class="btn primary" data-nav="nueva">Nueva cotización</button></div></div>
+    <div class="row"><button class="btn primary" data-act="new-form">Nueva cotización</button></div></div>
     ${act.length ? `<section class="panel"><header><h2>Requieren tu atención</h2><span class="muted small">${act.length} cotización(es)</span></header><div>${act.map(card).join('')}</div></section>` : ''}
     <section class="panel"><header><h2>Historial</h2></header><div>${mine.length ? mine.filter(q => !act.includes(q)).map(card).join('') || '<p class="empty">No hay más cotizaciones.</p>' : '<p class="empty">Todavía no cargaste cotizaciones. Empezá con “Nueva cotización” o importá tu Excel.</p>'}</div></section>`;
 }
@@ -931,7 +937,9 @@ function agentFeedbackPanel(q, n) {
 function routeReadOnly(r) {
   const fr = Object.entries(r.freight).filter(([, f]) => f.amt);
   const ls = r.locals.filter(l => l.amt !== '' && l.amt != null);
+  const rec = [['Locales ARG', r.localesArg], ['Recarga IMO', r.imo], ['Fuel adjust', r.fuel], ['Adicional puertos internos', r.puertos]].filter(x => x[1] !== '' && x[1] != null);
   return `<div class="route-card" style="margin-top:12px"><header>${routeTitle(r)}<span class="muted small">${esc(r.line || r.lineRaw || 'sin naviera')} · ${r.service === 'direct' ? 'Directo' : 'Transbordo en ' + esc(portName(r.transship))} · TT ${esc(r.tt || '—')} días · ${esc(r.payment)}</span></header>
+    ${rec.length ? `<div class="row small">${rec.map(x => `<span>${x[0]}: <b>${usd(Number(x[1]))}</b>${x[0] === 'Locales ARG' && Number(x[1]) > state.settings.localesArg ? ' ' + pill('Supera USD ' + nf0.format(state.settings.localesArg), 'orange') : ''}</span>`).join('<span class="muted">·</span>')}</div>` : ''}
     <div class="grid2"><div><div class="label">Ocean freight</div><div class="tablewrap" style="margin-top:6px"><table><thead><tr><th>Contenedor</th><th class="num">Flete</th><th class="num">Días libres</th></tr></thead><tbody>
       ${fr.map(([c, f]) => `<tr><td class="mono">${c}</td><td class="num">${esc(f.cur)} ${nf2.format(f.amt)}</td><td class="num">${esc(f.free ?? '—')}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">Sin fletes</td></tr>'}
       ${(r.unmapped || []).map(u => `<tr><td class="mono" style="color:var(--bad)">${esc(u.raw)}</td><td class="num">USD ${nf2.format(u.amt)}</td><td class="num">${esc(u.free)}</td></tr>`).join('')}</tbody></table></div></div>
@@ -1032,6 +1040,14 @@ function routeEditor(r, i, n) {
       <div class="row" style="margin-top:10px"><label class="f" style="flex-direction:row;align-items:center;gap:8px">Agregar concepto
         <select data-act-change="add-local"><option value="">Elegir…</option>${CHARGES.filter(c => !r.locals.some(l => l.code === c.code)).map(c => `<option value="${c.code}">${esc(c.name)}</option>`).join('')}<option value="OTHER">Otro (no estándar)</option></select></label></div>
     </div>
+    <div><div class="section-title"><span class="step">5</span><h3>Locales ARG y recargos (USD)</h3></div>
+      <div class="fields">
+        <label class="f">Locales ARG<input type="number" min="0" step="0.01" data-k="localesArg" value="${esc(r.localesArg)}" class="${r.localesArg === '' ? 'bad' : ''}">
+          <span class="small" data-lhint style="${Number(r.localesArg) > state.settings.localesArg ? 'color:var(--warn);font-weight:600' : ''}">${Number(r.localesArg) > state.settings.localesArg ? 'Supera lo aceptado por BIDCOM' : 'Aceptado por BIDCOM'}: USD ${nf0.format(state.settings.localesArg)}</span></label>
+        <label class="f">Recarga IMO<input type="number" min="0" step="0.01" data-k="imo" value="${esc(r.imo)}"></label>
+        <label class="f">Fuel adjust<input type="number" min="0" step="0.01" data-k="fuel" value="${esc(r.fuel)}"></label>
+        <label class="f">Adicional puertos internos<input type="number" min="0" step="0.01" data-k="puertos" value="${esc(r.puertos)}"></label>
+      </div></div>
     <label class="f">Observaciones<textarea rows="2" data-k="remarks">${esc(r.remarks)}</textarea></label>
   </section>`;
 }
@@ -1257,6 +1273,7 @@ function viewDetail() {
         ${[['Ocean freight', s.f.freight, s.l.freight, s.fSave], ['Gastos en origen', s.f.locals, s.l.locals, s.lSave], ['Total', s.f.total, s.l.total, s.tSave]].map(([n, a, b, d]) =>
           `<tr><td>${n}</td><td class="num">${usd(a)}</td><td class="num">${usd(b)}</td><td class="num ${d >= 0 ? 'gap-neg' : 'gap-pos'}">${signed(d)}</td><td class="num">${pct(a ? d / a * 100 : null)}</td></tr>`).join('')}</tbody></table></div>`).join('')}</section>` : ''}
     ${evals.map(({ r, evals }) => `<section class="panel"><header><h2>${routeTitle(r)}</h2><span class="muted small">${esc(r.line)} · ${r.service === 'direct' ? 'Directo' : 'Transbordo en ' + esc(portName(r.transship))} · TT ${esc(r.tt)} días · ${esc(r.payment)}</span></header>
+      ${r.localesArg !== '' ? `<p class="small" style="margin-bottom:10px">Locales ARG ${usd(Number(r.localesArg))}${Number(r.localesArg) > state.settings.localesArg ? ' ' + pill('Supera lo aceptado (USD ' + nf0.format(state.settings.localesArg) + ')', 'orange') : ' ' + pill('Dentro de lo aceptado', 'green')}${[['Recarga IMO', r.imo], ['Fuel adjust', r.fuel], ['Adicional puertos internos', r.puertos]].filter(x => x[1] !== '' && x[1] != null).map(x => ` · ${x[0]} ${usd(Number(x[1]))}`).join('')}</p>` : ''}
       <div class="stack">${evals.map(e => evalBlock(q, r, e)).join('')}</div></section>`).join('')}
     ${negs.length ? `<section class="panel"><h2>Pedidos de renegociación</h2><div class="tablewrap" style="margin-top:10px"><table><thead><tr><th>Fecha</th><th>Desde</th><th>Conceptos pedidos</th><th>Estado</th></tr></thead><tbody>
       ${negs.map(n => `<tr><td>${esc(n.at)}</td><td>v${n.fromVersion}</td><td>${n.items.map(i => `${esc(i.label)} ≤ ${usd(i.max)}`).join('<br>')}</td><td>${n.status === 'requested' ? pill('Esperando agente', 'yellow') : pill('Respondido con v' + n.toVersion, 'green')}</td></tr>`).join('')}</tbody></table></div></section>` : ''}`;
@@ -1987,7 +2004,7 @@ function importantPanel(mode, compact) {
   return `<section class="panel important"><header><h2>Lo importante para esta cotización</h2>${compact ? '' : '<span class="muted small">Leelo antes de cargar</span>'}</header>
     <div class="alert warn" style="margin-top:10px"><b class="t">Solapa Gastos en origen</b><p>${esc(first)}</p></div>
     <ul class="important-list">${rest.map(n => `<li>${esc(n)}</li>`).join('')}</ul>
-    ${compact ? '' : `<div class="row" style="margin-top:12px"><button class="btn" data-act="dl-model" data-mode="${mode}">Descargar modelo (en blanco)</button><button class="btn" data-act="dl-example" data-mode="${mode}">Descargar ejemplo completo</button></div>`}</section>`;
+    ${mode === 'sea' ? `<ul class="important-list"><li>Locales ARG: el valor aceptado por BIDCOM es USD ${nf0.format(state.settings.localesArg)}. Recarga IMO, Fuel adjust y Adicional puertos internos van cada uno en su campo.</li></ul>` : ''}</section>`;
 }
 function airQuotesOf(agent) { return state.quotes.filter(q => q.mode === 'air' && (!agent || q.agent === agent)); }
 function viewAirMine() {
@@ -2004,7 +2021,7 @@ function viewAirMine() {
     <section class="panel" style="border-color:var(--accent)"><header><h2>Solicitud vigente · <span class="mono">${esc(req.week)}</span></h2><span class="muted small">Período ${esc(req.from)} al ${esc(req.to)} · responder hasta <b>${esc(req.deadline)}</b></span></header>
       <p>Rutas a cotizar: ${req.routes.filter(r => r.on).map(r => `<b>${esc(apLabel(r.origin))}</b>`).join(', ')} → Buenos Aires - EZE.</p>
       <div class="row" style="margin-top:12px">${thisWeek ? `<span>${pill('Ya respondiste esta semana: ' + AGENT_STATUS[thisWeek.status][0], AGENT_STATUS[thisWeek.status][1])}</span>` :
-        `<button class="btn primary" data-act="a-new">Cargar online</button><button class="btn" data-nav="a-importar">Subir Excel</button>`}</div></section>
+        `<button class="btn primary" data-act="a-new">Cargar tarifas</button>`}</div></section>
     ${importantPanel('air')}
     <section class="panel"><header><h2>Mis tarifarios</h2></header><div>${mine.map(card).join('') || '<p class="empty">Todavía no enviaste tarifarios aéreos.</p>'}</div></section>`;
 }
@@ -2259,7 +2276,8 @@ function loadAirSample() { try { if (typeof XLSX !== 'undefined' && !window.__ai
    ===================================================================== */
 document.addEventListener('click', e => {
   const ms = e.target.closest('[data-mode-switch]'); if (ms) { ui.mode = ms.dataset.modeSwitch; ui.importResult = null; ui.composer = null; go(homeView()); return; }
-  const nav = e.target.closest('[data-nav]'); if (nav) { go(nav.dataset.nav, { importResult: nav.dataset.nav === 'importar' ? ui.importResult : ui.importResult }); return; }
+  const nav = e.target.closest('[data-nav]'); if (nav && nav.dataset.nav === 'nueva') { openEditor(null); return; }
+  if (nav) { go(nav.dataset.nav, { importResult: nav.dataset.nav === 'importar' ? ui.importResult : ui.importResult }); return; }
   const a = e.target.closest('[data-act]'); if (!a) return;
   const act = a.dataset.act, id = a.dataset.id, q = id ? state.quotes.find(x => x.id === id) : null;
   switch (act) {

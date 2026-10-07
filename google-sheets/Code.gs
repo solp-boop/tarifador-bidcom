@@ -17,7 +17,11 @@ var HOJA = {
   COMPARATIVO: 'Comparativo aéreo',
   REGISTRO: 'Registro',
   CONFIG: 'Configuración',
-  NEGOCIACION: 'Negociación aérea'
+  NEGOCIACION: 'Negociación aérea',
+  MAR_TARIFAS: 'Tarifas marítimas (envíos)',
+  MAR_GASTOS: 'Gastos en origen marítimo (envíos)',
+  MAR_NEGOCIACION: 'Negociación marítima',
+  MAR_LISTAS: 'Listas marítimo'
 };
 var TIPOS = { INICIAL: 'Inicial', NEGOCIADA: 'Negociada' };
 var MOTIVOS = { primero: 'Primer envío', correccion: 'Corrección', negociada: 'Mejora negociada' };
@@ -45,6 +49,9 @@ function onOpen() {
     .addSeparator()
     .addItem('Pasar la semana actual a la base madre', 'pasarSemanaABaseMadre')
     .addItem('Actualizar la pestaña Negociación aérea', 'actualizarNegociacionMenu')
+    .addSeparator()
+    .addItem('Marítimo: verificar la base madre', 'verificarBaseMaritima')
+    .addItem('Marítimo: actualizar Negociación marítima', 'actualizarNegociacionMaritima')
     .addItem('Ir al comparativo', 'irAlComparativo')
     .addToUi();
 }
@@ -170,6 +177,8 @@ function prepararHojas() {
     conf.getRange('A11').setValue('Si usás una sola pestaña, conviene que tenga una columna "Tipo de tarifa": ahí se escribe Inicial o Negociada y las dos filas quedan. Si no la tiene, la negociada se agrega como fila nueva y en Observaciones dice "Tarifa negociada".');
   }
 
+  prepararMaritimo(ss, creadas);
+
   if (!ss.getSheetByName(HOJA.REGISTRO)) {
     var r = ss.insertSheet(HOJA.REGISTRO);
     r.getRange(1, 1, 1, 4).setValues([['Fecha y hora', 'Agente', 'Acción', 'Detalle']]);
@@ -275,7 +284,7 @@ function doGet(e) {
   var t = HtmlService.createTemplateFromFile('Index');
   t.clave = clave.replace(/[^A-Za-z0-9]/g, '');
   t.datos =JSON.stringify(datosParaAgente(agente)).replace(/</g, '\\u003c');
-  return t.evaluate().setTitle('Tarifario aéreo BIDCOM').addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  return t.evaluate().setTitle('Tarifas BIDCOM').addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
 function buscarAgente(clave) {
@@ -285,7 +294,7 @@ function buscarAgente(clave) {
   var datos = sh.getDataRange().getValues();
   for (var i = 1; i < datos.length; i++) {
     if (String(datos[i][4]).trim() === clave && String(datos[i][3]).trim().toUpperCase() === 'SI') {
-      return { codigo: String(datos[i][0]).trim(), nombre: String(datos[i][1]).trim() };
+      return { codigo: String(datos[i][0]).trim(), nombre: String(datos[i][1]).trim(), contacto: String(datos[i][6] || '').trim() };
     }
   }
   return null;
@@ -309,7 +318,7 @@ function datosParaAgente(agente) {
   var ultimo = envios.filter(function (e) { return e.semana === sol.semana; })[0] || null;
   return { agente: agente.nombre, solicitud: sol, breaks: BREAKS, conceptos: CONCEPTOS, unidades: UNIDADES,
            envios: envios.map(function (e) { return { semana: e.semana, version: e.version, recibido: e.recibido, rutas: e.rutas.length, tipo: e.tipo, motivo: e.motivo }; }),
-           ultimo: ultimo };
+           ultimo: ultimo, mar: datosMaritimoParaAgente(agente) };
 }
 
 function enviosDelAgente(nombre) {
@@ -519,7 +528,8 @@ function abrirDestino(cfg, nombre) {
   return hoja;
 }
 // Busca en las primeras 20 filas la que más encabezados reconocidos tiene
-function mapearEncabezados(hoja) {
+function mapearEncabezados(hoja, mapaDef) {
+  mapaDef = mapaDef || MAPA_AEREO;
   var n = Math.min(20, Math.max(1, hoja.getLastRow())), ancho = Math.max(1, hoja.getLastColumn());
   var filas = hoja.getRange(1, 1, n, ancho).getValues(), mejor = { fila: 0, mapa: {}, n: 0, desconocidas: [] };
   filas.forEach(function (fila, i) {
@@ -527,7 +537,7 @@ function mapearEncabezados(hoja) {
     fila.forEach(function (h, j) {
       var k = claveTexto(h); if (!k) return;
       var campo = null;
-      MAPA_AEREO.forEach(function (m) {
+      mapaDef.forEach(function (m) {
         if (campo) return;
         m[1].forEach(function (alias) { var a = claveTexto(alias); if (!campo && (k === a || (m[2] && k.indexOf(a) === 0))) campo = m[0]; });
       });
@@ -762,4 +772,335 @@ function actualizarNegociacion() {
 function actualizarNegociacionMenu() {
   actualizarNegociacion();
   SpreadsheetApp.getUi().alert('Listo. La pestaña "' + HOJA.NEGOCIACION + '" está actualizada con todo el historial.');
+}
+
+/* ================================================================== */
+/* MARÍTIMO                                                            */
+/* Mismo link del agente. Se guarda en pestañas de envíos y se pega en  */
+/* "Cotizaciones Maritimos SIN NEGOCIAR" (inicial) y "Negociado".        */
+/* ================================================================== */
+var CONTENEDORES = ['20ST', '40ST', '40HQ', '40NOR'];
+var COLS_MAR = ['ID envío', 'Recibido', 'Quincena desde', 'Quincena hasta', 'FFWW', 'Contacto', 'Versión', 'Vigente', 'Tipo de tarifa', 'Motivo del envío',
+  'Ruta', 'POL', 'POD', 'Naviera', 'Tipo de servicio', 'Directo / Transbordo', 'Puerto transbordo', 'TT (días)', 'Pagadero', 'Contenedor',
+  'Valor flete USD', 'Días libres', 'Locales ARG USD', 'Recarga IMO USD', 'Fuel adjust USD', 'Adicional puertos internos USD', 'Gastos en origen USD (por contenedor)', 'Comentarios'];
+var COLS_MAR_GASTOS = ['ID envío', 'Recibido', 'Quincena desde', 'FFWW', 'Versión', 'Tipo de tarifa', 'Vigente', 'Ruta', 'POL', 'Concepto', 'Importe USD', 'Unidad', 'Descripción'];
+var COLS_MAR_NEG = ['Quincena desde', 'FFWW', 'POL', 'POD', 'Naviera', 'Contenedor', 'Estado', 'Rondas negociadas', 'Flete inicial', 'Flete negociado', 'Ahorro flete USD', 'Ahorro flete %',
+  'Locales ARG inicial', 'Locales ARG negociado', 'Total inicial', 'Total negociado', 'Ahorro total USD', 'Ahorro total %', 'Gastos en origen inicial', 'Gastos en origen negociado'];
+
+var MAPA_MARITIMO = [
+  ['transporte', ['TIPO DE TRANSPORTE', 'TRANSPORTE']],
+  ['ffww', ['FFWW', 'FORWARDER']],
+  ['contacto', ['AGENTE', 'CONTACTO']],
+  ['flete', ['VALOR FLETE', 'FLETE', 'OCEAN FREIGHT']],
+  ['pol', ['POL', 'PUERTO DE CARGA']],
+  ['tt', ['TT', 'TRANSIT TIME', 'TRANSITO']],
+  ['servicio', ['TIPO DE SERVICIO']],
+  ['linea', ['LINEA', 'NAVIERA', 'SHIPPING LINE']],
+  ['pod', ['POD', 'PUERTO DE DESTINO']],
+  ['transbordo', ['TRANSBORDO']],
+  ['desde', ['VALIDEZ QUINCENA DESDE', 'VALIDEZ DESDE'], true],
+  ['hasta', ['VALIDEZ QUINCENA HASTA', 'VALIDEZ HASTA'], true],
+  ['dias', ['DIAS LIBRES']],
+  ['pagadero', ['PAGADERO']],
+  ['locales', ['LOCALES ARG', 'LOCALES'], true],
+  ['ctnr', ['TIPO CTNR', 'TIPO DE CONTENEDOR', 'CONTENEDOR']],
+  ['coment', ['COMENTARIOS', 'OBSERVACIONES']],
+  ['imo', ['RECARGA IMO', 'RECARGO IMO'], true],
+  ['fuel', ['FUEL ADJUST'], true],
+  ['puertos', ['ADICIONAL PUERTOS INTERNOS'], true]
+];
+var NOMBRE_CAMPO_MAR = { transporte: 'Tipo de transporte (Maritimo)', ffww: 'Empresa del agente', contacto: 'Contacto del agente', flete: 'Valor flete', pol: 'POL', tt: 'Transit time',
+  servicio: 'Tipo de servicio (Regular / Spot)', linea: 'Naviera', pod: 'POD', transbordo: 'Directo o puerto de transbordo', desde: 'Quincena desde', hasta: 'Quincena hasta',
+  dias: 'Días libres', pagadero: 'Pagadero', locales: 'Locales ARG', ctnr: 'Contenedor', coment: 'Comentarios', imo: 'Recarga IMO', fuel: 'Fuel adjust', puertos: 'Adicional puertos internos' };
+
+function prepararMaritimo(ss, creadas) {
+  if (!ss.getSheetByName(HOJA.MAR_TARIFAS)) {
+    var t = ss.insertSheet(HOJA.MAR_TARIFAS);
+    t.getRange(1, 1, 1, COLS_MAR.length).setValues([COLS_MAR]); estiloEncabezado(t, COLS_MAR.length); t.setFrozenColumns(6);
+    t.getRange('B:B').setNumberFormat('dd/mm/yyyy hh:mm'); t.getRange('C:D').setNumberFormat('dd/mm/yyyy'); t.getRange('U:AA').setNumberFormat('#,##0.00');
+    t.getRange('A1').setNote('La completa el formulario. Una fila por ruta y contenedor. Nunca se borra: cada envío queda con su versión y su tipo de tarifa.');
+    creadas.push(HOJA.MAR_TARIFAS);
+  }
+  if (!ss.getSheetByName(HOJA.MAR_GASTOS)) {
+    var g = ss.insertSheet(HOJA.MAR_GASTOS);
+    g.getRange(1, 1, 1, COLS_MAR_GASTOS.length).setValues([COLS_MAR_GASTOS]); estiloEncabezado(g, COLS_MAR_GASTOS.length);
+    g.getRange('B:B').setNumberFormat('dd/mm/yyyy hh:mm'); g.getRange('C:C').setNumberFormat('dd/mm/yyyy'); g.getRange('K:K').setNumberFormat('#,##0.00');
+    g.getRange('A1').setNote('Gastos en origen concepto por concepto. Es la base para negociar gastos en origen.');
+    creadas.push(HOJA.MAR_GASTOS);
+  }
+  if (!ss.getSheetByName(HOJA.MAR_NEGOCIACION)) {
+    var n = ss.insertSheet(HOJA.MAR_NEGOCIACION);
+    n.getRange('A1').setValue('Negociación marítima: tarifa inicial contra tarifa negociada').setFontWeight('bold').setFontSize(14);
+    n.getRange('A2').setValue('Se arma sola con cada envío a partir del historial (que nunca se borra). Total = flete + Locales ARG + recargos. No editar a mano.');
+    n.getRange(3, 1, 1, 5).setValues([['Rutas cotizadas', 'Rutas negociadas', 'Ahorro total USD', 'Ahorro promedio %', 'Mayor ahorro %']]).setFontWeight('bold');
+    n.getRange(4, 1, 1, 5).setFormulas([['=COUNTA(A7:A)', '=COUNTIF(G7:G,"Negociada")', '=SUM(Q7:Q)', '=IFERROR(AVERAGEIF(G7:G,"Negociada",R7:R),"")', '=IFERROR(MAX(R7:R),"")']]);
+    n.getRange('C4').setNumberFormat('#,##0'); n.getRange('D4:E4').setNumberFormat('0.0%'); n.getRange(4, 1, 1, 5).setFontSize(13).setBackground('#E2EFDA');
+    n.getRange(6, 1, 1, COLS_MAR_NEG.length).setValues([COLS_MAR_NEG]); estiloFila(n.getRange(6, 1, 1, COLS_MAR_NEG.length));
+    n.setFrozenRows(6); n.getRange('A7:A').setNumberFormat('dd/mm/yyyy'); n.getRange('I7:Q').setNumberFormat('#,##0.00'); n.getRange('L7:L').setNumberFormat('0.0%'); n.getRange('R7:R').setNumberFormat('0.0%'); n.getRange('S7:T').setNumberFormat('#,##0.00');
+    creadas.push(HOJA.MAR_NEGOCIACION);
+  }
+  if (!ss.getSheetByName(HOJA.MAR_LISTAS)) {
+    var l = ss.insertSheet(HOJA.MAR_LISTAS);
+    var listas = [
+      ['POL', 'Shanghai', 'Ningbo', 'Shenzhen', 'Yantian', 'Shekou', 'Qingdao', 'Tianjin', 'Xiamen', 'Nansha', 'Guangzhou', 'Hong Kong', 'Busan', 'Singapore'],
+      ['POD', 'BUENOS AIRES', 'MONTEVIDEO', 'SANTOS'],
+      ['Naviera', 'MSC', 'MAERSK', 'CMA CGM', 'COSCO', 'EVERGREEN', 'HAPAG-LLOYD', 'ONE', 'OOCL', 'HMM', 'ZIM', 'PIL', 'YANG MING', 'WAN HAI', 'TBC'],
+      ['Tipo de servicio', 'Regular', 'Spot'],
+      ['Pagadero', 'COLLECT', 'PREPAID'],
+      ['Conceptos gastos en origen', 'Handling fee', 'VGM / Pesada', 'EIR', 'Seal / Precinto', 'ORC / THC', 'Telex release fee', 'Documentation fee', 'DG fee', 'Pick up fee EXW', 'Warehouse fee', 'Customs clearance fee', 'Issue customs doc fee'],
+      ['Unidades', 'Por BL', 'Por contenedor', 'Por embarque', 'Por CBM', 'Por tonelada']];
+    listas.forEach(function (col, j) { l.getRange(1, j + 1, col.length, 1).setValues(col.map(function (v) { return [v]; })); });
+    estiloEncabezado(l, listas.length); l.getRange(2, 1, 20, listas.length).setBackground('#FFF2CC');
+    l.getRange('A1').setNote('Lo que escribas en cada columna aparece en las listas del formulario marítimo del agente. Podés agregar o quitar valores.');
+    creadas.push(HOJA.MAR_LISTAS);
+  }
+  asegurarEncabezados(ss.getSheetByName(HOJA.AGENTES), ['Código', 'Nombre del agente', 'Email de contacto', 'Activo (SI/NO)', 'Clave (automática)', 'Link personal (automático)', 'Contacto (columna Agente de la base)']);
+  var k = ss.getSheetByName(HOJA.CONFIG);
+  if (k && !String(k.getRange('A13').getValue()).trim()) {
+    k.getRange('A13').setValue('MARÍTIMO').setFontWeight('bold');
+    k.getRange(14, 1, 5, 3).setValues([
+      ['Pestaña tarifas iniciales (marítimo)', 'Cotizaciones Maritimos SIN NEGOCIAR', 'Ahí se pega el primer envío de cada agente (y sus correcciones).'],
+      ['Pestaña tarifas negociadas (marítimo)', 'Cotizaciones Maritimos Negociado', 'Ahí se pega la tarifa mejorada después de negociar. La inicial no se toca.'],
+      ['Locales ARG aceptado (USD)', 800, 'Se le muestra al agente como referencia. Si cotiza más, se le avisa (no se bloquea el envío).'],
+      ['Pegar automáticamente marítimo', 'SI', 'NO = solo se guarda en las pestañas de envíos marítimos.'],
+      ['40ST y 40HQ con el mismo valor se pegan como', '40ST/40HQ', 'Si el agente cotiza 40ST y 40HQ al mismo valor y días libres, va una sola fila con este texto.']]);
+    k.getRange('A14:A18').setFontWeight('bold'); k.getRange('B14:B18').setBackground('#FFF2CC');
+    k.getRange('B17').setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['SI', 'NO'], true).build());
+  }
+}
+
+function leerConfigMar() {
+  var k = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(HOJA.CONFIG);
+  var base = leerConfig();
+  if (!k) return { auto: false };
+  var v = k.getRange('B14:B18').getValues();
+  return { url: base.url, ini: String(v[0][0]).trim(), neg: String(v[1][0]).trim(), localesAceptado: num(v[2][0]) || 800,
+           auto: String(v[3][0]).trim().toUpperCase() === 'SI' && !!String(v[0][0]).trim(), combinado: String(v[4][0]).trim() || '40ST/40HQ' };
+}
+function leerListasMar() {
+  var l = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(HOJA.MAR_LISTAS), out = {};
+  if (!l) return out;
+  var d = l.getDataRange().getValues(), claves = { 'POL': 'pol', 'POD': 'pod', 'Naviera': 'naviera', 'Tipo de servicio': 'servicio', 'Pagadero': 'pagadero', 'Conceptos gastos en origen': 'conceptos', 'Unidades': 'unidades' };
+  (d[0] || []).forEach(function (h, j) {
+    var k = claves[String(h).trim()]; if (!k) return;
+    out[k] = d.slice(1).map(function (r) { return String(r[j]).trim(); }).filter(String);
+  });
+  return out;
+}
+// Quincena actual y la siguiente
+function quincenas() {
+  var hoy = new Date(), y = hoy.getFullYear(), m = hoy.getMonth(), out = [];
+  var q = function (y, m, primera) { return primera ? [new Date(y, m, 1), new Date(y, m, 15)] : [new Date(y, m, 16), new Date(y, m + 1, 0)]; };
+  var actual = hoy.getDate() <= 15 ? q(y, m, true) : q(y, m, false);
+  var siguiente = hoy.getDate() <= 15 ? q(y, m, false) : q(y, m + 1, true);
+  [actual, siguiente].forEach(function (p) { out.push({ desde: fecha(p[0]), hasta: fecha(p[1]) }); });
+  return out;
+}
+
+function enviosMarDelAgente(nombre) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), t = ss.getSheetByName(HOJA.MAR_TARIFAS), g = ss.getSheetByName(HOJA.MAR_GASTOS);
+  if (!t) return [];
+  var dt = t.getDataRange().getValues(), dg = g ? g.getDataRange().getValues() : [], porId = {};
+  for (var i = 1; i < dt.length; i++) {
+    var r = dt[i]; if (r[4] !== nombre || !r[0]) continue;
+    var e = porId[r[0]] = porId[r[0]] || { id: r[0], recibido: fechaHora(r[1]), desde: fecha(r[2]), hasta: fecha(r[3]), version: r[6], tipo: r[8] || TIPOS.INICIAL, motivo: r[9] || '', rutas: {} };
+    var ru = e.rutas[r[10]] = e.rutas[r[10]] || { pol: r[11], pod: r[12], naviera: r[13], servicio: r[14], directo: r[15] !== 'Transbordo', transbordo: r[16], tt: r[17], pagadero: r[18],
+      contenedores: {}, localesArg: r[22], imo: r[23], fuel: r[24], puertos: r[25], comentarios: r[27], gastos: [] };
+    ru.contenedores[r[19]] = { flete: r[20], dias: r[21] };
+  }
+  for (var j = 1; j < dg.length; j++) {
+    var e2 = porId[dg[j][0]]; if (!e2 || !e2.rutas[dg[j][7]]) continue;
+    e2.rutas[dg[j][7]].gastos.push({ concepto: dg[j][9], importe: dg[j][10], unidad: dg[j][11], descripcion: dg[j][12] });
+  }
+  return Object.keys(porId).map(function (k) { var e = porId[k]; e.rutas = Object.keys(e.rutas).sort().map(function (n) { return e.rutas[n]; }); return e; })
+    .sort(function (a, b) { return b.recibido < a.recibido ? -1 : 1; });
+}
+function datosMaritimoParaAgente(agente) {
+  var cfg = leerConfigMar(), envios = enviosMarDelAgente(agente.nombre), ultimos = {};
+  envios.forEach(function (e) { if (!ultimos[e.desde]) ultimos[e.desde] = e; });
+  return { quincenas: quincenas(), localesAceptado: cfg.localesAceptado || 800, listas: leerListasMar(), contenedores: CONTENEDORES, ultimos: ultimos,
+           envios: envios.map(function (e) { return { desde: e.desde, hasta: e.hasta, version: e.version, recibido: e.recibido, rutas: e.rutas.length, tipo: e.tipo, motivo: e.motivo }; }) };
+}
+
+function validarEnvioMar(envio, listas) {
+  var err = [];
+  if (!envio || !envio.desde || !envio.hasta) err.push('Falta la quincena.');
+  if (!envio || !envio.rutas || !envio.rutas.length) return err.concat(['No hay rutas cargadas.']);
+  envio.rutas.forEach(function (r, i) {
+    var p = 'Ruta ' + (i + 1) + (r.pol ? ' (' + r.pol + ')' : '') + ': ';
+    if (!String(r.pol || '').trim()) err.push(p + 'falta el POL.');
+    if (!String(r.pod || '').trim()) err.push(p + 'falta el POD.');
+    if (!String(r.naviera || '').trim()) err.push(p + 'falta la naviera.');
+    if (!String(r.servicio || '').trim()) err.push(p + 'falta el tipo de servicio (Regular o Spot).');
+    if (!r.directo && !String(r.transbordo || '').trim()) err.push(p + 'falta el puerto de transbordo.');
+    if (!(num(r.tt) > 0)) err.push(p + 'falta el transit time.');
+    if (['COLLECT', 'PREPAID'].indexOf(r.pagadero) < 0) err.push(p + 'falta pagadero.');
+    var conts = Object.keys(r.contenedores || {}).filter(function (c) { return CONTENEDORES.indexOf(c) >= 0 && num(r.contenedores[c].flete) > 0; });
+    if (!conts.length) err.push(p + 'falta el flete de al menos un contenedor.');
+    conts.forEach(function (c) { var d = r.contenedores[c].dias; if (d === '' || d === null || d === undefined || isNaN(num(d))) err.push(p + 'faltan los días libres de ' + c + '.'); });
+    if (r.localesArg === '' || r.localesArg === null || r.localesArg === undefined || isNaN(num(r.localesArg))) err.push(p + 'faltan los Locales ARG.');
+    ['imo', 'fuel', 'puertos'].forEach(function (k) { if (r[k] !== '' && r[k] !== null && r[k] !== undefined && isNaN(num(r[k]))) err.push(p + 'valor inválido en ' + { imo: 'Recarga IMO', fuel: 'Fuel adjust', puertos: 'Adicional puertos internos' }[k] + '.'); });
+    var gastos = (r.gastos || []).filter(function (c) { return c.importe !== '' && c.importe !== null && c.importe !== undefined; });
+    if (!gastos.length) err.push(p + 'faltan los gastos en origen desglosados.');
+    gastos.forEach(function (c) {
+      if (isNaN(num(c.importe)) || num(c.importe) < 0) err.push(p + c.concepto + ': importe inválido.');
+      if (!String(c.unidad || '').trim()) err.push(p + c.concepto + ': falta la unidad.');
+      if ((listas.conceptos || []).indexOf(c.concepto) < 0 && !String(c.descripcion || '').trim()) err.push(p + 'concepto adicional sin descripción.');
+    });
+  });
+  return err;
+}
+// Gastos en origen llevados a 1 contenedor (BL, embarque y contenedor completos; CBM y toneladas con un volumen estándar)
+var CBM_STD = { '20ST': 28, '40ST': 58, '40HQ': 68, '40NOR': 58 }, TON_STD = { '20ST': 10, '40ST': 12, '40HQ': 12, '40NOR': 12 };
+function gastosPorContenedor(gastos, c) {
+  return Math.round((gastos || []).reduce(function (s, g) {
+    var a = num(g.importe); if (g.importe === '' || isNaN(a)) return s;
+    return s + (g.unidad === 'Por CBM' ? a * (CBM_STD[c] || 0) : g.unidad === 'Por tonelada' ? a * (TON_STD[c] || 0) : a);
+  }, 0) * 100) / 100;
+}
+
+function enviarMaritimo(clave, envio) {
+  var agente = buscarAgente(clave);
+  if (!agente) throw new Error('Tu link ya no es válido. Pedile a BIDCOM uno nuevo.');
+  var listas = leerListasMar(), errores = validarEnvioMar(envio, listas);
+  if (errores.length) return { ok: false, errores: errores };
+  var desde = aFecha(envio.desde), hasta = aFecha(envio.hasta);
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet(), t = ss.getSheetByName(HOJA.MAR_TARIFAS), g = ss.getSheetByName(HOJA.MAR_GASTOS);
+    var ahora = new Date(), id = 'M' + Utilities.getUuid().slice(0, 7).toUpperCase();
+    var dt = t.getDataRange().getValues(), ids = {}, ultimoTipo = TIPOS.INICIAL;
+    for (var i = 1; i < dt.length; i++) {
+      if (dt[i][4] === agente.nombre && fecha(dt[i][2]) === envio.desde) { ids[dt[i][0]] = true; ultimoTipo = dt[i][8] || TIPOS.INICIAL; if (dt[i][7] === 'SI') t.getRange(i + 1, 8).setValue('NO'); }
+    }
+    var version = Object.keys(ids).length + 1;
+    var motivo = version === 1 ? 'primero' : envio.motivo;
+    if (version > 1 && !MOTIVOS[motivo]) return { ok: false, errores: ['Indicá si este envío corrige un error o es una tarifa mejorada.'] };
+    var tipo = motivo === 'negociada' ? TIPOS.NEGOCIADA : motivo === 'correccion' ? ultimoTipo : TIPOS.INICIAL;
+    var dg = g.getDataRange().getValues();
+    for (var j = 1; j < dg.length; j++) { if (dg[j][3] === agente.nombre && fecha(dg[j][2]) === envio.desde && dg[j][6] === 'SI') g.getRange(j + 1, 7).setValue('NO'); }
+
+    var filas = [], filasG = [], paraBase = [], cfg = leerConfigMar();
+    envio.rutas.forEach(function (r, k) {
+      var ruta = 'R' + (k + 1);
+      var gastos = (r.gastos || []).filter(function (c) { return c.importe !== '' && c.importe !== null && c.importe !== undefined; });
+      gastos.forEach(function (c) { filasG.push([id, ahora, desde, agente.nombre, version, tipo, 'SI', ruta, r.pol, c.concepto, num(c.importe), c.unidad, c.descripcion || '']); });
+      var conts = CONTENEDORES.filter(function (c) { return r.contenedores[c] && num(r.contenedores[c].flete) > 0; });
+      conts.forEach(function (c) {
+        filas.push([id, ahora, desde, hasta, agente.nombre, agente.contacto || '', version, 'SI', tipo, MOTIVOS[motivo], ruta, r.pol, r.pod, r.naviera, r.servicio,
+          r.directo ? 'Directo' : 'Transbordo', r.directo ? '' : r.transbordo, num(r.tt), r.pagadero, c, num(r.contenedores[c].flete), num(r.contenedores[c].dias),
+          num(r.localesArg), num(r.imo), num(r.fuel), num(r.puertos), gastosPorContenedor(gastos, c), r.comentarios || '']);
+      });
+      // Para la base madre: 40ST y 40HQ con el mismo valor y días libres van en una sola fila
+      var c40 = r.contenedores['40ST'], c4h = r.contenedores['40HQ'];
+      var juntar = conts.indexOf('40ST') >= 0 && conts.indexOf('40HQ') >= 0 && num(c40.flete) === num(c4h.flete) && num(c40.dias) === num(c4h.dias);
+      conts.forEach(function (c) {
+        if (juntar && c === '40HQ') return;
+        paraBase.push({ tipo: tipo, motivo: MOTIVOS[motivo], transporte: 'Maritimo', ffww: agente.nombre, contacto: agente.contacto || agente.nombre,
+          flete: num(r.contenedores[c].flete), pol: r.pol, tt: num(r.tt), servicio: r.servicio, linea: r.naviera, pod: r.pod,
+          transbordo: r.directo ? 'Directo' : r.transbordo, desde: desde, hasta: hasta, dias: num(r.contenedores[c].dias), pagadero: r.pagadero,
+          locales: num(r.localesArg), ctnr: juntar && c === '40ST' ? cfg.combinado : c, coment: r.comentarios || '', imo: num(r.imo), fuel: num(r.fuel), puertos: num(r.puertos) });
+      });
+    });
+    t.getRange(t.getLastRow() + 1, 1, filas.length, COLS_MAR.length).setValues(filas);
+    if (filasG.length) g.getRange(g.getLastRow() + 1, 1, filasG.length, COLS_MAR_GASTOS.length).setValues(filasG);
+    registrar(agente.nombre, 'Envió tarifas marítimas quincena ' + envio.desde + ' (versión ' + version + ', ' + tipo.toLowerCase() + (motivo === 'correccion' ? ', corrección' : '') + ')',
+      envio.rutas.length + ' ruta(s), ' + filas.length + ' contenedor(es). ID ' + id);
+    SpreadsheetApp.flush();
+    try { if (cfg.auto) pegarMaritimo(paraBase, cfg); } catch (err) { registrar('BIDCOM', 'Error al pegar marítimo en la base madre', String(err && err.message || err)); }
+    try { actualizarNegociacionMaritima(); } catch (err2) { registrar('BIDCOM', 'Error al actualizar Negociación marítima', String(err2 && err2.message || err2)); }
+    return { ok: true, version: version, id: id, tipo: tipo, mar: datosMaritimoParaAgente(agente) };
+  } finally { lock.releaseLock(); }
+}
+
+function valorMar(campo, f) {
+  var v = f[campo];
+  if (['imo', 'fuel', 'puertos'].indexOf(campo) >= 0 && (v === '' || v === 0)) return '';
+  return v;
+}
+function clavePegado(v) { return v instanceof Date ? fecha(v) : claveTexto(v); }
+
+// Pega en la base madre marítima: inicial en SIN NEGOCIAR, negociada en Negociado. Una corrección pisa su propia fila.
+function pegarMaritimo(filas, cfg) {
+  var grupos = {};
+  filas.forEach(function (f) { var dest = f.tipo === TIPOS.NEGOCIADA ? cfg.neg : cfg.ini; (grupos[dest] = grupos[dest] || []).push(f); });
+  var total = { nuevas: 0, actualizadas: 0 };
+  Object.keys(grupos).forEach(function (nombre) {
+    if (!nombre) throw new Error('Falta el nombre de la pestaña marítima en Configuración.');
+    var hoja = abrirDestino({ url: cfg.url }, nombre), enc = mapearEncabezados(hoja, MAPA_MARITIMO);
+    if (!enc) throw new Error('No encontré los encabezados en "' + nombre + '".');
+    var M = enc.mapa, ancho = hoja.getLastColumn(), ultimaHoja = hoja.getLastRow(), colPol = M.pol || M.ffww;
+    // Para no leer 17.000 filas en cada envío, se buscan coincidencias en las últimas 4.000
+    var inicio = Math.max(enc.fila + 1, ultimaHoja - 3999), n = Math.max(0, ultimaHoja - inicio + 1);
+    var datos = n ? hoja.getRange(inicio, 1, n, ancho).getValues() : [], formulas = n ? hoja.getRange(inicio, 1, n, ancho).getFormulas() : [];
+    var ultima = enc.fila; datos.forEach(function (r, i) { if (String(r[colPol - 1]).trim() !== '') ultima = inicio + i; });
+    var claves = ['ffww', 'pol', 'pod', 'linea', 'ctnr', 'desde'].filter(function (c) { return M[c]; });
+    grupos[nombre].forEach(function (f) {
+      var fila = 0;
+      if (f.motivo === MOTIVOS.correccion || f.tipo === TIPOS.NEGOCIADA) {
+        for (var i = datos.length - 1; i >= 0 && !fila; i--) {
+          var r = datos[i] || [];
+          if (claves.every(function (c) { return clavePegado(r[M[c] - 1]) === clavePegado(f[c]); })) fila = inicio + i;
+        }
+      }
+      var esNueva = !fila;
+      if (esNueva) { fila = ultima + 1; ultima = fila; if (fila - 1 > enc.fila) hoja.getRange(fila - 1, 1, 1, ancho).copyTo(hoja.getRange(fila, 1, 1, ancho), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false); }
+      var idx = fila - inicio, arriba = idx > 0 ? (formulas[idx - 1] || []) : [], propias = (formulas[idx] || []).slice();
+      datos[idx] = datos[idx] || []; formulas[idx] = formulas[idx] || [];
+      Object.keys(M).forEach(function (campo) {
+        var c = M[campo];
+        if (propias[c - 1]) return;
+        if (esNueva && arriba[c - 1]) { hoja.getRange(fila - 1, c).copyTo(hoja.getRange(fila, c), SpreadsheetApp.CopyPasteType.PASTE_FORMULA, false); formulas[idx][c - 1] = arriba[c - 1]; return; }
+        var v = valorMar(campo, f); hoja.getRange(fila, c).setValue(v === undefined || (typeof v === 'number' && isNaN(v)) ? '' : v);
+        datos[idx][c - 1] = v;
+      });
+      if (esNueva) {
+        arriba.forEach(function (fx, j) {
+          var usada = Object.keys(M).some(function (k) { return M[k] === j + 1; });
+          if (fx && !usada && !formulas[idx][j]) { hoja.getRange(fila - 1, j + 1).copyTo(hoja.getRange(fila, j + 1), SpreadsheetApp.CopyPasteType.PASTE_FORMULA, false); formulas[idx][j] = fx; }
+        });
+        total.nuevas++;
+      } else total.actualizadas++;
+    });
+    registrar('BIDCOM', 'Pegó marítimo en la base madre', grupos[nombre].length + ' fila(s) en "' + nombre + '"');
+  });
+  return total;
+}
+
+function verificarBaseMaritima() {
+  var ui = SpreadsheetApp.getUi(), cfg = leerConfigMar(), msg = [];
+  [cfg.ini, cfg.neg].forEach(function (nombre, i) {
+    try {
+      var hoja = abrirDestino({ url: cfg.url }, nombre), enc = mapearEncabezados(hoja, MAPA_MARITIMO);
+      if (!enc) { msg.push('"' + nombre + '": no encontré los encabezados.'); return; }
+      msg.push((i ? 'NEGOCIADAS' : 'INICIALES') + ' → "' + nombre + '" (encabezados en fila ' + enc.fila + ')\n' +
+        Object.keys(enc.mapa).sort(function (a, b) { return enc.mapa[a] - enc.mapa[b]; }).map(function (k) { return '• ' + hoja.getRange(enc.fila, enc.mapa[k]).getValue() + '  ←  ' + NOMBRE_CAMPO_MAR[k]; }).join('\n') +
+        (enc.desconocidas.length ? '\nNo se tocan (si tienen fórmula se copia): ' + enc.desconocidas.join(', ') : ''));
+    } catch (e) { msg.push(String(e.message || e)); }
+  });
+  ui.alert(msg.join('\n\n') + '\n\nPegado automático marítimo: ' + (cfg.auto ? 'activado' : 'desactivado') + '.');
+}
+
+function actualizarNegociacionMaritima() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), h = ss.getSheetByName(HOJA.MAR_NEGOCIACION), t = ss.getSheetByName(HOJA.MAR_TARIFAS);
+  if (!h || !t) return;
+  var d = t.getDataRange().getValues(), rutas = {}, orden = [], rondas = {};
+  for (var i = 1; i < d.length; i++) {
+    var r = d[i]; if (!r[0]) continue;
+    var key = [fecha(r[2]), r[4], r[11], r[12], r[13], r[19]].join('|'), tipo = r[8] || TIPOS.INICIAL;
+    if (!rutas[key]) { rutas[key] = { desde: r[2], ffww: r[4], pol: r[11], pod: r[12], naviera: r[13], ctnr: r[19], ini: null, neg: null, rondas: 0 }; orden.push(key); }
+    var x = { flete: num(r[20]) || 0, locales: num(r[22]) || 0, recargos: (num(r[23]) || 0) + (num(r[24]) || 0) + (num(r[25]) || 0), origen: num(r[26]) || 0 };
+    x.total = x.flete + x.locales + x.recargos;
+    if (tipo === TIPOS.NEGOCIADA) { if (r[9] !== MOTIVOS.correccion) rutas[key].rondas++; rutas[key].neg = x; } else rutas[key].ini = x;
+  }
+  var filas = orden.map(function (k) {
+    var r = rutas[k], a = r.ini, b = r.neg;
+    return [r.desde, r.ffww, r.pol, r.pod, r.naviera, r.ctnr, b ? 'Negociada' : 'Sin negociar', r.rondas || '',
+      a ? a.flete : '', b ? b.flete : '', a && b ? a.flete - b.flete : '', a && b && a.flete ? (a.flete - b.flete) / a.flete : '',
+      a ? a.locales : '', b ? b.locales : '', a ? a.total : '', b ? b.total : '', a && b ? a.total - b.total : '', a && b && a.total ? (a.total - b.total) / a.total : '',
+      a ? a.origen : '', b ? b.origen : ''];
+  }).sort(function (x, y) { return y[0] - x[0] || (String(x[2]) + x[1] < String(y[2]) + y[1] ? -1 : 1); });
+  var ultima = h.getLastRow();
+  if (ultima >= 7) h.getRange(7, 1, ultima - 6, COLS_MAR_NEG.length).clearContent();
+  if (filas.length) h.getRange(7, 1, filas.length, COLS_MAR_NEG.length).setValues(filas);
 }

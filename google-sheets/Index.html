@@ -46,6 +46,11 @@
   .btn:focus-visible, input:focus-visible, select:focus-visible, .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .check li { margin-bottom: 4px; } .done { color: var(--ok); font-weight: 700; }
   .origin { border-color: var(--warn); }
+  .modos { display: inline-flex; gap: 4px; padding: 4px; background: var(--sunken); border: 1px solid var(--line); border-radius: 10px; align-self: flex-start; }
+  .modos button { font: inherit; font-weight: 700; font-size: 15px; border: 0; border-radius: 7px; padding: 9px 22px; background: none; color: var(--muted); cursor: pointer; }
+  .modos button[aria-selected=true] { background: var(--surface); color: var(--accent); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+  .hint { font-size: 12px; color: var(--muted); } .hint.alto { color: var(--warn); font-weight: 700; }
+  .ruta-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .tema { display: inline-flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--muted); }
   .tema select { width: auto; padding: 4px 6px; }
   .motivo { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
@@ -57,14 +62,15 @@
 </style>
 </head>
 <body>
-<header class="top"><div class="in"><h1>Tarifario aéreo BIDCOM</h1><span style="display:flex;gap:16px;align-items:center;flex-wrap:wrap"><span class="muted" id="who"></span>
+<header class="top"><div class="in"><h1>Tarifas BIDCOM</h1><span style="display:flex;gap:16px;align-items:center;flex-wrap:wrap"><span class="muted" id="who"></span>
   <label class="tema" for="tema">Tema <select id="tema"><option value="auto">Automático</option><option value="light">Claro</option><option value="dark">Oscuro</option></select></label></span></div></header>
-<div class="wrap" id="app"></div>
+<div class="wrap"><div class="modos" id="modos" role="tablist" aria-label="Tipo de transporte"></div><div id="app" style="display:flex;flex-direction:column;gap:16px"></div></div>
 
 <script>
 var D = <?!= datos ?>;
 var CLAVE = '<?!= clave ?>';
 var S = D.solicitud, form = nuevoFormulario(), tab = S.rutas.length ? S.rutas[0].origen : '', enviando = false, resultado = null, motivo = '';
+var modo = 'mar'; try { modo = localStorage.getItem('bidcom-modo') || 'mar'; } catch (e) {}
 // Tema claro / oscuro: lo elige cada persona y se recuerda en su navegador
 function aplicarTema(t) { if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); else document.documentElement.removeAttribute('data-theme'); }
 (function () { var t = 'auto'; try { t = localStorage.getItem('bidcom-tema') || 'auto'; } catch (e) {} aplicarTema(t); var sel = document.getElementById('tema'); sel.value = t;
@@ -125,6 +131,12 @@ function allin(r) {
 
 function render() {
   document.getElementById('who').textContent = D.agente;
+  document.getElementById('modos').innerHTML = [['mar', 'Marítimo'], ['air', 'Aéreo']].map(function (m) {
+    return '<button type="button" role="tab" data-modo="' + m[0] + '" aria-selected="' + (modo === m[0]) + '">' + m[1] + '</button>'; }).join('');
+  document.querySelectorAll('[data-modo]').forEach(function (b) { b.onclick = function () { modo = b.getAttribute('data-modo'); try { localStorage.setItem('bidcom-modo', modo); } catch (e) {} render(); window.scrollTo(0, 0); }; });
+  if (modo === 'mar') renderMar(); else renderAir();
+}
+function renderAir() {
   if (resultado) { renderOk(); return; }
   var notas = S.notas || [], errs = errores();
   var html = '';
@@ -239,6 +251,187 @@ function renderOk() {
     '<p>Semana ' + esc(S.semana) + ', versión ' + esc(resultado.version) + ', registrada como <b>tarifa ' + esc(String(resultado.tipo || 'Inicial').toLowerCase()) + '</b> (código ' + esc(resultado.id) + '). Gracias.</p></div>' +
     '<p class="small muted" style="margin-top:12px">Si necesitás corregir algo, volvé a entrar con tu link: tu envío aparece precargado y podés mandar una nueva versión.</p></section>';
 }
+/* ================================================================== */
+/* MARÍTIMO                                                            */
+/* ================================================================== */
+var MR = D.mar || { quincenas: [], listas: {}, ultimos: {}, envios: [], localesAceptado: 800, contenedores: ['20ST', '40ST', '40HQ', '40NOR'] };
+var mPer = 0, mForm = null, mEnviando = false, mResultado = null, mMotivo = '';
+var MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+function nombreQuincena(q) { var a = q.desde.split('-'), b = q.hasta.split('-'); return Number(a[2]) + ' al ' + Number(b[2]) + ' de ' + MESES[Number(a[1]) - 1] + ' ' + a[0]; }
+function unidadDef(c) {
+  var t = String(c).toUpperCase();
+  if (/HANDLING|TELEX|DOCUMENT/.test(t)) return 'Por BL';
+  if (/PICK|CUSTOMS|ISSUE/.test(t)) return 'Por embarque';
+  if (/WAREHOUSE/.test(t)) return 'Por CBM';
+  return 'Por contenedor';
+}
+function mUltimo() { var q = MR.quincenas[mPer]; return q ? (MR.ultimos[q.desde] || null) : null; }
+function gastosBase(prev) {
+  var std = (MR.listas.conceptos || []).map(function (c) {
+    var p = (prev || []).filter(function (x) { return x.concepto === c; })[0];
+    return { concepto: c, importe: p ? p.importe : '', unidad: p ? p.unidad : unidadDef(c), descripcion: '' };
+  });
+  var extra = (prev || []).filter(function (x) { return (MR.listas.conceptos || []).indexOf(x.concepto) < 0; })
+    .map(function (x) { return { concepto: x.concepto, importe: x.importe, unidad: x.unidad, descripcion: x.descripcion || x.concepto, extra: true }; });
+  return std.concat(extra);
+}
+function rutaMarVacia(base) {
+  return { pol: '', pod: base ? base.pod : ((MR.listas.pod || [])[0] || 'BUENOS AIRES'), naviera: '', servicio: 'Regular', directo: true, transbordo: '', tt: '',
+    pagadero: base ? base.pagadero : 'COLLECT', contenedores: {}, localesArg: base ? base.localesArg : '', imo: '', fuel: '', puertos: '', comentarios: '',
+    gastos: base ? JSON.parse(JSON.stringify(base.gastos)) : gastosBase(null) };
+}
+function nuevoMar() {
+  var u = mUltimo();
+  if (!u) return { rutas: [rutaMarVacia(null)] };
+  return { rutas: u.rutas.map(function (r) {
+    var x = JSON.parse(JSON.stringify(r)); x.gastos = gastosBase(r.gastos); x.contenedores = x.contenedores || {}; return x; }) };
+}
+function mErrores() {
+  var e = [];
+  mForm.rutas.forEach(function (r, i) {
+    var p = 'Ruta ' + (i + 1) + (r.pol ? ' (' + r.pol + ')' : '') + ': ';
+    if (!r.pol) e.push(p + 'falta el POL');
+    if (!r.pod) e.push(p + 'falta el POD');
+    if (!r.naviera) e.push(p + 'falta la naviera');
+    if (!r.directo && !r.transbordo) e.push(p + 'falta el puerto de transbordo');
+    if (!(n(r.tt) > 0)) e.push(p + 'falta el transit time');
+    var conts = MR.contenedores.filter(function (c) { return r.contenedores[c] && n(r.contenedores[c].flete) > 0; });
+    if (!conts.length) e.push(p + 'falta el flete de al menos un contenedor');
+    conts.forEach(function (c) { if (isNaN(n(r.contenedores[c].dias))) e.push(p + 'faltan los días libres de ' + c); });
+    if (isNaN(n(r.localesArg))) e.push(p + 'faltan los Locales ARG');
+    var gs = r.gastos.filter(function (g) { return !vacio(g.importe); });
+    if (!gs.length) e.push(p + 'faltan los gastos en origen');
+    gs.forEach(function (g) { if (g.extra && !String(g.descripcion || '').trim()) e.push(p + 'concepto adicional sin descripción'); });
+  });
+  return e;
+}
+function opciones(lista, val, vacioTxt) {
+  return (vacioTxt ? '<option value="">' + vacioTxt + '</option>' : '') + (lista || []).map(function (v) { return '<option ' + (v === val ? 'selected' : '') + '>' + esc(v) + '</option>'; }).join('') +
+    (val && (lista || []).indexOf(val) < 0 ? '<option selected>' + esc(val) + '</option>' : '');
+}
+function mTipoHTML() {
+  var u = mUltimo();
+  if (!u) return '<p class="small" style="margin:12px 0">Este envío se registra como <span class="tipo">Tarifa inicial</span></p>';
+  var opc = [['correccion', 'Corrijo un error de mi envío anterior', 'Reemplaza tu envío anterior (sigue siendo tu ' + (u.tipo === 'Negociada' ? 'tarifa negociada' : 'tarifa inicial') + ').'],
+             ['negociada', 'Es una tarifa mejorada (negociada con BIDCOM)', 'Se registra como tarifa negociada. Tu tarifa inicial queda guardada.']];
+  return '<div class="motivo" role="radiogroup" aria-label="Motivo del envío"><b class="small">Ya enviaste tarifas para esta quincena. ¿Qué es este envío?</b>' + opc.map(function (o) {
+    return '<label class="' + (mMotivo === o[0] ? 'sel' : '') + '"><input type="radio" name="mmotivo" value="' + o[0] + '" ' + (mMotivo === o[0] ? 'checked' : '') + '><span><b>' + o[1] + '</b><br><span class="muted small">' + o[2] + '</span></span></label>'; }).join('') + '</div>';
+}
+function mLocalesHint(v) {
+  var x = n(v);
+  return !isNaN(x) && x > MR.localesAceptado ? '<span class="hint alto">Supera lo aceptado por BIDCOM (USD ' + fmt(MR.localesAceptado) + ')</span>' : '<span class="hint">Valor aceptado por BIDCOM: USD ' + fmt(MR.localesAceptado) + '</span>';
+}
+function mRutaHTML(r, i) {
+  var L = MR.listas, nr = mForm.rutas.length;
+  function inp(k, v, bad, label, step) { return '<input type="number" min="0" step="' + (step || '0.01') + '" data-mr="' + i + '" data-mk="' + k + '" value="' + esc(v) + '" class="' + (bad ? 'bad' : '') + '" aria-label="' + esc(label) + '">'; }
+  return '<div class="route"><div class="ruta-head"><h3>Ruta ' + (i + 1) + (r.pol ? ': ' + esc(r.pol) + ' → ' + esc(r.pod) : '') + '</h3>' + (nr > 1 ? '<button type="button" class="btn" data-mquitar="' + i + '">Quitar ruta</button>' : '') + '</div>' +
+    '<div class="grid">' +
+      '<label>POL<select data-mr="' + i + '" data-mk="pol" class="' + (r.pol ? '' : 'bad') + '">' + opciones(L.pol, r.pol, 'Elegir…') + '</select></label>' +
+      '<label>POD<select data-mr="' + i + '" data-mk="pod" class="' + (r.pod ? '' : 'bad') + '">' + opciones(L.pod, r.pod, 'Elegir…') + '</select></label>' +
+      '<label>Naviera<select data-mr="' + i + '" data-mk="naviera" class="' + (r.naviera ? '' : 'bad') + '">' + opciones(L.naviera, r.naviera, 'Elegir…') + '</select></label>' +
+      '<label>Tipo de servicio<select data-mr="' + i + '" data-mk="servicio">' + opciones(L.servicio, r.servicio) + '</select></label>' +
+      '<label>Directo o transbordo<select data-mr="' + i + '" data-mk="directo"><option value="si" ' + (r.directo ? 'selected' : '') + '>Directo</option><option value="no" ' + (r.directo ? '' : 'selected') + '>Con transbordo</option></select></label>' +
+      (r.directo ? '' : '<label>Puerto de transbordo<select data-mr="' + i + '" data-mk="transbordo" class="' + (r.transbordo ? '' : 'bad') + '">' + opciones(L.pol, r.transbordo, 'Elegir…') + '</select></label>') +
+      '<label>Transit time (días)' + inp('tt', r.tt, !(n(r.tt) > 0), 'Transit time', '1') + '</label>' +
+      '<label>Pagadero<select data-mr="' + i + '" data-mk="pagadero">' + opciones(L.pagadero, r.pagadero) + '</select></label>' +
+    '</div>' +
+    '<div><div class="small muted" style="margin-bottom:4px">Flete en USD por contenedor. Completá solo los que cotizás, cada uno con sus días libres. Si 40ST y 40HQ valen lo mismo, cargá el mismo valor en los dos.</div>' +
+      '<div class="tablewrap"><table><thead><tr><th>Contenedor</th><th>Valor flete USD</th><th>Días libres</th></tr></thead><tbody>' + MR.contenedores.map(function (c) {
+        var x = r.contenedores[c] || {}, conFlete = n(x.flete) > 0;
+        return '<tr><td><b>' + c + '</b></td><td><input type="number" min="0" step="0.01" data-mr="' + i + '" data-mc="' + c + '" data-mck="flete" value="' + esc(x.flete) + '" aria-label="Flete ' + c + '"></td>' +
+          '<td><input type="number" min="0" step="1" data-mr="' + i + '" data-mc="' + c + '" data-mck="dias" value="' + esc(x.dias) + '" class="' + (conFlete && isNaN(n(x.dias)) ? 'bad' : '') + '" aria-label="Días libres ' + c + '"></td></tr>'; }).join('') +
+      '</tbody></table></div></div>' +
+    '<div class="grid">' +
+      '<label>Locales ARG (USD)' + inp('localesArg', r.localesArg, isNaN(n(r.localesArg)), 'Locales ARG') + '<span data-mhint="' + i + '">' + mLocalesHint(r.localesArg) + '</span></label>' +
+      '<label>Recarga IMO (USD)' + inp('imo', r.imo, false, 'Recarga IMO') + '</label>' +
+      '<label>Fuel adjust (USD)' + inp('fuel', r.fuel, false, 'Fuel adjust') + '</label>' +
+      '<label>Adicional puertos internos (USD)' + inp('puertos', r.puertos, false, 'Adicional puertos internos') + '</label>' +
+    '</div>' +
+    '<div class="origin" style="border:1px solid var(--warn);border-radius:8px;padding:12px"><h3>Gastos en origen <span class="badge">Importante</span></h3>' +
+      '<p class="small muted" style="margin:4px 0 8px">Un importe por concepto, con su unidad. Dejá vacío lo que no aplica. No envíes un total sin desglose.</p>' +
+      '<div class="tablewrap"><table><thead><tr><th>Concepto</th><th>Importe USD</th><th>Unidad</th></tr></thead><tbody>' + r.gastos.map(function (g, j) {
+        return '<tr><td>' + (g.extra ? '<input data-mr="' + i + '" data-mg="' + j + '" data-mgk="descripcion" placeholder="Descripción del concepto" value="' + esc(g.descripcion) + '" class="' + (String(g.descripcion || '').trim() ? '' : 'bad') + '">' : esc(g.concepto)) + '</td>' +
+          '<td><input type="number" min="0" step="0.01" data-mr="' + i + '" data-mg="' + j + '" data-mgk="importe" value="' + esc(g.importe) + '" aria-label="Importe ' + esc(g.concepto) + '"></td>' +
+          '<td><select data-mr="' + i + '" data-mg="' + j + '" data-mgk="unidad">' + opciones(L.unidades, g.unidad) + '</select></td></tr>'; }).join('') + '</tbody></table></div>' +
+      '<div style="margin-top:8px"><button type="button" class="btn" data-motro="' + i + '">+ Otro concepto</button></div></div>' +
+    '<label>Comentarios<input data-mr="' + i + '" data-mk="comentarios" value="' + esc(r.comentarios) + '"></label></div>';
+}
+function renderMar() {
+  if (!mForm) mForm = nuevoMar();
+  if (mResultado) {
+    document.getElementById('app').innerHTML = '<section class="panel"><div class="alert ok"><h2 style="margin:0 0 6px">Recibimos tus tarifas marítimas</h2>' +
+      '<p>Quincena del ' + esc(nombreQuincena(MR.quincenas[mPer])) + ', versión ' + esc(mResultado.version) + ', registrada como <b>tarifa ' + esc(String(mResultado.tipo).toLowerCase()) + '</b> (código ' + esc(mResultado.id) + '). Gracias.</p></div>' +
+      '<p class="small muted" style="margin-top:12px">Si necesitás corregir algo o BIDCOM te pide una mejora, volvé a entrar con tu link: tu envío aparece precargado.</p>' +
+      '<div style="margin-top:12px"><button class="btn" id="mvolver">Volver al formulario</button></div></section>';
+    document.getElementById('mvolver').onclick = function () { mResultado = null; mForm = nuevoMar(); mMotivo = ''; render(); };
+    return;
+  }
+  var errs = mErrores(), u = mUltimo(), html = '';
+  html += '<section class="panel"><h2>Tarifas marítimas por quincena</h2><div class="grid" style="max-width:520px"><label>Quincena<select id="mper">' + MR.quincenas.map(function (q, k) {
+    return '<option value="' + k + '" ' + (k === mPer ? 'selected' : '') + '>' + esc(nombreQuincena(q)) + '</option>'; }).join('') + '</select></label></div>' +
+    (u ? '<p class="small muted" style="margin-top:8px">Precargamos tu último envío de esta quincena: revisalo y enviá la nueva versión.</p>' : '') + '</section>';
+  html += '<section class="panel"><h2>Lo importante</h2><div class="alert warn"><b>Gastos en origen.</b> Completalos concepto por concepto, con su unidad de cobro. BIDCOM los usa como base para una negociación específica de gastos en origen.</div>' +
+    '<ul class="notes"><li>Locales ARG: el valor aceptado por BIDCOM es USD ' + fmt(MR.localesAceptado) + '.</li>' +
+    '<li>Cotizá cada contenedor con su valor y sus días libres.</li><li>Una naviera por ruta. Recarga IMO, Fuel adjust y Adicional puertos internos van cada uno en su campo, en USD.</li></ul></section>';
+  html += '<div class="layout"><div style="display:flex;flex-direction:column;gap:16px"><section class="panel"><h2>Rutas</h2><div style="display:flex;flex-direction:column;gap:12px">' + mForm.rutas.map(mRutaHTML).join('') + '</div>' +
+    '<div style="margin-top:12px"><button type="button" class="btn" id="mmas">+ Agregar otra ruta</button></div></section></div>';
+  html += '<aside class="panel"><h2>Antes de enviar</h2><div id="mcheck">' + checkHTML(errs) + '</div>' + mTipoHTML() +
+    '<button class="btn primary" id="menviar" ' + (mEnviando ? 'disabled' : '') + '>' + (mEnviando ? 'Enviando…' : (u ? 'Enviar nueva versión' : 'Enviar a BIDCOM')) + '</button>' +
+    '<p class="small muted">Una vez enviada, la versión queda registrada. Si necesitás corregir, volvé a entrar con tu link.</p></aside></div>';
+  if (MR.envios.length) html += '<section class="panel"><h2>Mis envíos marítimos</h2><div class="tablewrap"><table><thead><tr><th>Quincena</th><th>Versión</th><th>Tipo de tarifa</th><th>Enviado</th><th>Rutas</th></tr></thead><tbody>' +
+    MR.envios.map(function (e) { return '<tr><td>' + esc(nombreQuincena(e)) + '</td><td>v' + esc(e.version) + '</td><td><span class="tipo' + (e.tipo === 'Negociada' ? ' neg' : '') + '">' + esc(e.tipo) + '</span>' + (e.motivo === 'Corrección' ? ' <span class="muted small">corrección</span>' : '') + '</td><td>' + esc(e.recibido) + '</td><td>' + esc(e.rutas) + '</td></tr>'; }).join('') + '</tbody></table></div></section>';
+  document.getElementById('app').innerHTML = html;
+  bindMar();
+}
+function mRefrescar() { document.getElementById('mcheck').innerHTML = checkHTML(mErrores()); }
+function bindMar() {
+  var redibujar = function () { var y = window.scrollY; render(); window.scrollTo(0, y); };
+  document.getElementById('mper').onchange = function (e) { mPer = Number(e.target.value); mForm = nuevoMar(); mMotivo = ''; render(); };
+  document.querySelectorAll('[data-mk]').forEach(function (el) {
+    var r = mForm.rutas[Number(el.getAttribute('data-mr'))], k = el.getAttribute('data-mk');
+    if (el.tagName === 'SELECT') el.onchange = function () { if (k === 'directo') r.directo = el.value === 'si'; else r[k] = el.value; redibujar(); };
+    else el.oninput = function () {
+      r[k] = el.value;
+      if (k === 'tt') el.classList.toggle('bad', !(n(el.value) > 0));
+      if (k === 'localesArg') { el.classList.toggle('bad', isNaN(n(el.value))); var h = document.querySelector('[data-mhint="' + el.getAttribute('data-mr') + '"]'); if (h) h.innerHTML = mLocalesHint(el.value); }
+      mRefrescar();
+    };
+  });
+  document.querySelectorAll('[data-mc]').forEach(function (el) {
+    var r = mForm.rutas[Number(el.getAttribute('data-mr'))], c = el.getAttribute('data-mc'), k = el.getAttribute('data-mck');
+    el.oninput = function () { r.contenedores[c] = r.contenedores[c] || {}; r.contenedores[c][k] = el.value; mRefrescar(); };
+  });
+  document.querySelectorAll('[data-mg]').forEach(function (el) {
+    var g = mForm.rutas[Number(el.getAttribute('data-mr'))].gastos[Number(el.getAttribute('data-mg'))], k = el.getAttribute('data-mgk');
+    if (el.tagName === 'SELECT') el.onchange = function () { g[k] = el.value; mRefrescar(); };
+    else el.oninput = function () { g[k] = el.value; if (k === 'descripcion') el.classList.toggle('bad', !el.value.trim()); mRefrescar(); };
+  });
+  document.querySelectorAll('[data-motro]').forEach(function (b) { b.onclick = function () { mForm.rutas[Number(b.getAttribute('data-motro'))].gastos.push({ concepto: 'Otro', importe: '', unidad: 'Por BL', descripcion: '', extra: true }); redibujar(); }; });
+  document.querySelectorAll('[data-mquitar]').forEach(function (b) { b.onclick = function () { mForm.rutas.splice(Number(b.getAttribute('data-mquitar')), 1); redibujar(); }; });
+  document.getElementById('mmas').onclick = function () { mForm.rutas.push(rutaMarVacia(mForm.rutas[mForm.rutas.length - 1])); redibujar(); };
+  document.querySelectorAll('input[name=mmotivo]').forEach(function (el) { el.onchange = function () { mMotivo = el.value; redibujar(); }; });
+  document.getElementById('menviar').onclick = enviarMar;
+}
+function enviarMar() {
+  var errs = mErrores();
+  if (errs.length) { document.getElementById('mcheck').innerHTML = '<div class="alert bad"><b>Todavía faltan datos.</b></div>' + checkHTML(errs); return; }
+  if (mUltimo() && !mMotivo) { document.getElementById('mcheck').innerHTML = '<div class="alert bad"><b>Indicá qué es este envío:</b> una corrección o una tarifa mejorada.</div>'; return; }
+  mEnviando = true; render();
+  var q = MR.quincenas[mPer];
+  var payload = { desde: q.desde, hasta: q.hasta, motivo: mMotivo, rutas: mForm.rutas.map(function (r) {
+    var x = JSON.parse(JSON.stringify(r));
+    x.gastos = r.gastos.filter(function (g) { return !vacio(g.importe); }).map(function (g) { return { concepto: g.extra ? 'Otro: ' + (g.descripcion || '') : g.concepto, importe: g.importe, unidad: g.unidad, descripcion: g.extra ? g.descripcion : '' }; });
+    return x; }) };
+  google.script.run
+    .withSuccessHandler(function (res) {
+      mEnviando = false;
+      if (!res.ok) { render(); document.getElementById('mcheck').innerHTML = '<div class="alert bad"><b>BIDCOM no pudo registrar el envío:</b><ul>' + res.errores.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div>'; return; }
+      mResultado = res; MR = res.mar; render(); window.scrollTo(0, 0);
+    })
+    .withFailureHandler(function (err) { mEnviando = false; render(); document.getElementById('mcheck').innerHTML = '<div class="alert bad"><b>No se pudo enviar.</b> ' + esc(err && err.message ? err.message : 'Probá de nuevo en unos minutos.') + '</div>'; })
+    .enviarMaritimo(CLAVE, payload);
+}
+
 render();
 </script>
 </body>
