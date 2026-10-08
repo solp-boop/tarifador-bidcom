@@ -67,6 +67,11 @@
   .vig { display: flex; gap: 10px 14px; flex-wrap: wrap; align-items: flex-end; }
   .vig label { width: 170px; }
   .rapidos { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 12.5px; color: var(--muted); }
+  .formas { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 12px; }
+  @media (max-width: 700px) { .formas { grid-template-columns: minmax(0, 1fr); } }
+  .forma { border: 1px solid var(--line); border-radius: 8px; padding: 12px; } .forma p { margin: 4px 0 10px; }
+  .acciones { display: flex; gap: 8px; flex-wrap: wrap; } .acciones .btn { font-size: 13px; padding: 8px 12px; }
+  .btn.subir { background: var(--accent); border-color: var(--accent); color: var(--bg); display: inline-flex; flex-direction: row; align-items: center; }
   .cargadas { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 10px; font-size: 12.5px; color: var(--muted); }
 </style>
 </head>
@@ -304,6 +309,7 @@ function renderMar() {
   var errs = mErrores(), u = mUltimo(), html = '';
   html += pedidosHTML('mar');
   html += vigenciaHTML('m', mVig, MR());
+  html += excelHTML('m');
   if (mPrecarga) html += '<p class="small muted" style="margin:-8px 0 0 4px">' + (mPrecarga === 'esta' ? 'Precargamos tu envío de esta vigencia: revisalo y enviá la nueva versión.' : 'Precargamos tu última cotización como punto de partida: actualizá lo que cambió.') + '</p>';
   html += '<section class="panel"><h2>Lo importante</h2><div class="alert warn"><b>Gastos en origen.</b> Completalos concepto por concepto, con su unidad de cobro. BIDCOM los usa como base para una negociación específica de gastos en origen.</div>' +
     '<ul class="notes"><li>Locales ARG: el valor aceptado por BIDCOM es USD ' + fmt(MR().localesAceptado) + '.</li>' +
@@ -319,6 +325,7 @@ function renderMar() {
 }
 function mRefrescar() { document.getElementById('mcheck').innerHTML = checkHTML(mErrores()); }
 function bindMar() {
+  bindExcel('m');
   bindVigencia('m', mVig, function () { if (mUltimo()) cargarMar(); else { mMotivo = ''; mPrecarga = mPrecarga === 'esta' ? 'ultima' : mPrecarga; } render(); });
   document.querySelectorAll('[data-mk]').forEach(function (el) {
     var r = mForm.rutas[Number(el.getAttribute('data-mr'))], k = el.getAttribute('data-mk');
@@ -350,12 +357,12 @@ function enviarMar() {
   if (errs.length) { document.getElementById('mcheck').innerHTML = '<div class="alert bad"><b>Todavía faltan datos.</b></div>' + checkHTML(errs); return; }
   if (mUltimo() && !mMotivo) { document.getElementById('mcheck').innerHTML = '<div class="alert bad"><b>Indicá qué es este envío:</b> una tarifa mejorada o una corrección.</div>'; return; }
   mEnviando = true; render();
-  var payload = { desde: mVig.desde, hasta: mVig.hasta, motivo: mMotivo, rutas: mForm.rutas.map(function (r) {
+  var payload = { desde: mVig.desde, hasta: mVig.hasta, motivo: mMotivo, archivo: XLI.m && !XLI.m.error ? XLI.m.archivo : '', rutas: mForm.rutas.map(function (r) {
     var x = copia(r);
     x.gastos = r.gastos.filter(function (g) { return !vacio(g.importe); }).map(function (g) { return { concepto: g.extra ? 'Otro: ' + (g.descripcion || '') : g.concepto, importe: g.importe, unidad: g.unidad, descripcion: g.extra ? g.descripcion : '' }; });
     return x; }) };
   google.script.run
-    .withSuccessHandler(function (res) { mEnviando = false; respuesta('mcheck', function (r) { mResultado = r; mForm = null; })(res); })
+    .withSuccessHandler(function (res) { mEnviando = false; respuesta('mcheck', function (r) { mResultado = r; mForm = null; XLI.m = null; })(res); })
     .withFailureHandler(falla('mcheck', function () { mEnviando = false; }))
     .enviarMaritimo(CLAVE, payload);
 }
@@ -456,6 +463,7 @@ function renderAir() {
   var notas = A().notas || [], errs = aErrores(), u = aUltimo(), html = '';
   html += pedidosHTML('air');
   html += vigenciaHTML('a', aVig, A());
+  html += excelHTML('a');
   if (aPrecarga) html += '<p class="small muted" style="margin:-8px 0 0 4px">' + (aPrecarga === 'esta' ? 'Precargamos tu envío de esta vigencia: revisalo y enviá la nueva versión.' : 'Precargamos tu última cotización como punto de partida: actualizá lo que cambió.') + '</p>';
   if (notas.length) html += '<section class="panel"><h2>Lo importante</h2><div class="alert warn"><b>Gastos en origen.</b> ' + esc(notas[0]) + '</div>' +
     (notas.length > 1 ? '<ul class="notes">' + notas.slice(1).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '') + '</section>';
@@ -480,6 +488,7 @@ function aRefrescar() {
   aForm.rutas.forEach(function (r, i) { var el = document.querySelector('[data-allin="' + i + '"]'); if (el) el.innerHTML = allinTxt(allin(r)); });
 }
 function bindAir() {
+  bindExcel('a');
   bindVigencia('a', aVig, function () { if (aUltimo()) cargarAir(); else { aMotivo = ''; aPrecarga = aPrecarga === 'esta' ? 'ultima' : aPrecarga; } render(); });
   document.querySelectorAll('[data-r]').forEach(function (el) {
     var r = aForm.rutas[+el.getAttribute('data-r')], k = el.getAttribute('data-k'), b = el.getAttribute('data-b');
@@ -509,15 +518,419 @@ function enviarAir() {
   if (errs.length) { document.getElementById('check').innerHTML = '<div class="alert bad"><b>Todavía faltan datos.</b></div>' + checkHTML(errs); return; }
   if (aUltimo() && !aMotivo) { document.getElementById('check').innerHTML = '<div class="alert bad"><b>Indicá qué es este envío:</b> una tarifa mejorada o una corrección.</div>'; return; }
   aEnviando = true; render();
-  var payload = { desde: aVig.desde, hasta: aVig.hasta, motivo: aMotivo, rutas: copia(aForm.rutas), gastos: {} };
+  var payload = { desde: aVig.desde, hasta: aVig.hasta, motivo: aMotivo, archivo: XLI.a && !XLI.a.error ? XLI.a.archivo : '', rutas: copia(aForm.rutas), gastos: {} };
   aForm.rutas.forEach(function (r) { payload.gastos[r.origen] = aForm.gastos[r.origen].map(function (c) { return { concepto: A().conceptos.indexOf(c.concepto) < 0 ? 'Otro: ' + (c.descripcion || '') : c.concepto, importe: c.importe, unidad: c.unidad, minimo: c.minimo, pedido: c.pedido, descripcion: c.descripcion || '' }; }); });
   google.script.run
-    .withSuccessHandler(function (res) { aEnviando = false; respuesta('check', function (r) { aResultado = r; aForm = null; })(res); })
+    .withSuccessHandler(function (res) { aEnviando = false; respuesta('check', function (r) { aResultado = r; aForm = null; XLI.a = null; })(res); })
     .withFailureHandler(falla('check', function () { aEnviando = false; }))
     .enviarTarifario(CLAVE, payload);
 }
 
+/* ================================================================== */
+/* EXCEL: descargar modelo y ejemplo, subir y precargar el formulario  */
+/* El archivo se lee en el navegador; lo que se envía es el formulario */
+/* revisado, igual que la carga a mano.                                */
+/* ================================================================== */
+var XLI = { m: null, a: null };            // resultado de la última carga de Excel por modo
+function normT(s) { return String(s === null || s === undefined ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9+/]/g, ' ').replace(/\s+/g, ' ').trim(); }
+function numX(v) {
+  if (typeof v === 'number') return v;
+  var s = String(v === null || v === undefined ? '' : v).replace(/USD|U\$S|\$/gi, '').trim(); if (!s) return '';
+  if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) s = s.replace(/\./g, '').replace(',', '.'); else s = s.replace(',', '.');
+  var x = Number(s); return isNaN(x) ? '' : x;
+}
+function fechaCelda(v) {
+  if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v)) return v.getFullYear() + '-' + ('0' + (v.getMonth() + 1)).slice(-2) + '-' + ('0' + v.getDate()).slice(-2);
+  if (typeof v === 'number' && v > 20000 && v < 80000) { var d = new Date(Date.UTC(1899, 11, 30)); d.setUTCDate(d.getUTCDate() + Math.floor(v)); return iso(d); }
+  var s = String(v || '').replace(/"/g, '').trim(), m;
+  if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) return m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2);
+  if ((m = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/))) return (m[3].length === 2 ? '20' + m[3] : m[3]) + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2);
+  return '';
+}
+function codigoAero(s) { var t = String(s || '').toUpperCase().trim(), m = t.match(/\(([A-Z]{3})\)/) || t.match(/[-–]\s*([A-Z]{3})\s*$/) || t.match(/^([A-Z]{3})$/); return m ? m[1] : normT(s); }
+function grilla(ws) { return XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true }); }
+// Busca la fila de encabezados con más columnas reconocidas. mapa: [[campo, [alias...]], ...]
+function encabezados(g, mapa) {
+  var mejor = null;
+  for (var i = 0; i < Math.min(25, g.length); i++) {
+    var cols = {}, n = 0, usados = {};
+    (g[i] || []).forEach(function (h, j) {
+      var k = normT(h); if (!k) return;
+      var campo = null;
+      mapa.forEach(function (m) { if (!campo && !cols[m[0]] && m[1].some(function (a) { return k === normT(a); })) campo = m[0]; });
+      if (!campo) mapa.forEach(function (m) { if (!campo && cols[m[0]] === undefined && m[1].some(function (a) { return k.indexOf(normT(a)) === 0; })) campo = m[0]; });
+      if (campo && cols[campo] === undefined && !usados[j]) { cols[campo] = j; usados[j] = true; n++; }
+    });
+    if (n >= 3 && (!mejor || n > mejor.n)) mejor = { fila: i, cols: cols, n: n };
+  }
+  return mejor;
+}
+// Valor a la derecha de una etiqueta ("Vigencia desde | 16/10/2026")
+function etiqueta(g, alias) {
+  for (var i = 0; i < Math.min(12, g.length); i++) for (var j = 0; j < (g[i] || []).length; j++) {
+    if (alias.indexOf(normT(g[i][j])) < 0) continue;
+    for (var k = j + 1; k < g[i].length; k++) if (String(g[i][k]).trim() !== '') return g[i][k];
+  }
+  return '';
+}
+function vigenciaDeLibro(wb) {
+  var out = { desde: '', hasta: '' };
+  wb.SheetNames.forEach(function (n) {
+    var g = grilla(wb.Sheets[n]);
+    out.desde = out.desde || fechaCelda(etiqueta(g, ['VIGENCIA DESDE', 'VALIDEZ DESDE', 'PERIODO DESDE']));
+    out.hasta = out.hasta || fechaCelda(etiqueta(g, ['VIGENCIA HASTA', 'VALIDEZ HASTA', 'PERIODO HASTA']));
+  });
+  return out;
+}
+function valorGasto(v) {
+  if (typeof v === 'number') return v > 0 ? { importe: v, unidad: 'fijo' } : null;
+  var t = normT(v); if (!t) return null;
+  if (/PEDIDO|RQST|REQUEST/.test(t)) return { pedido: true };
+  var kg = String(v).toUpperCase().match(/([\d.,]+)\s*(?:X|POR|\/)\s*KG/), min = String(v).toUpperCase().match(/MIN[A-Z.]*\s*(?:USD\s*)?([\d.,]+)/);
+  if (kg) return { importe: numX(kg[1]), unidad: 'kg', minimo: min ? numX(min[1]) : '' };
+  var x = numX(v); return x === '' || x <= 0 ? null : { importe: x, unidad: 'fijo' };
+}
+
+/* ---------- Marítimo: lectura ---------- */
+var MAPA_MAR_MODELO = [['ruta', ['RUTA']], ['pol', ['POL']], ['pod', ['POD']], ['naviera', ['NAVIERA', 'LINEA']], ['servicio', ['TIPO DE SERVICIO', 'SERVICIO']],
+  ['transbordo', ['PUERTO DE TRANSBORDO', 'PUERTO TRANSBORDO', 'TRANSBORDO']], ['tt', ['TRANSIT TIME DIAS', 'TRANSIT TIME', 'TT']], ['pagadero', ['PAGADERO']],
+  ['f20ST', ['FLETE 20ST', '20ST']], ['d20ST', ['DIAS LIBRES 20ST']], ['f40ST', ['FLETE 40ST', '40ST']], ['d40ST', ['DIAS LIBRES 40ST']],
+  ['f40HQ', ['FLETE 40HQ', '40HQ']], ['d40HQ', ['DIAS LIBRES 40HQ']], ['f40NOR', ['FLETE 40NOR', '40NOR']], ['d40NOR', ['DIAS LIBRES 40NOR']],
+  ['locales', ['LOCALES ARG USD', 'LOCALES ARG', 'LOCALES']], ['imo', ['RECARGA IMO']], ['fuel', ['FUEL ADJUST']], ['puertos', ['ADICIONAL PUERTOS INTERNOS']], ['coment', ['COMENTARIOS', 'OBSERVACIONES']]];
+var MAPA_MAR_ACTUAL = [['flete', ['VALOR FLETE']], ['ctnr', ['TIPO CTNR', 'TIPO DE CONTENEDOR', 'CONTENEDOR']], ['pol', ['POL']], ['pod', ['POD']], ['naviera', ['LINEA', 'NAVIERA']],
+  ['servicio', ['TIPO DE SERVICIO']], ['transbordo', ['TRANSBORDO']], ['tt', ['TT', 'TRANSIT TIME']], ['desde', ['VALIDEZ QUINCENA DESDE', 'VIGENCIA DESDE', 'VALIDEZ DESDE']],
+  ['hasta', ['VALIDEZ QUINCENA HASTA', 'VIGENCIA HASTA', 'VALIDEZ HASTA']], ['dias', ['DIAS LIBRES']], ['pagadero', ['PAGADERO']], ['locales', ['LOCALES ARG', 'LOCALES']],
+  ['imo', ['RECARGA IMO']], ['fuel', ['FUEL ADJUST']], ['puertos', ['ADICIONAL PUERTOS INTERNOS']], ['coment', ['COMENTARIOS', 'OBSERVACIONES']]];
+function deLista(lista, v) { var t = normT(v); if (!t) return ''; var x = (lista || []).filter(function (o) { return normT(o) === t; })[0]; return x || String(v).trim(); }
+function directoDe(v) { var t = normT(v); return !t || t === 'NO' || t === 'DIRECTO' || t === 'DIRECT'; }
+function leerExcelMar(wb) {
+  var L = MR().listas, avisos = [], rutas = [], hojaF = null, tipo = '';
+  wb.SheetNames.forEach(function (n) {
+    if (hojaF) return;
+    var g = grilla(wb.Sheets[n]), e1 = encabezados(g, MAPA_MAR_MODELO), e2 = encabezados(g, MAPA_MAR_ACTUAL);
+    if (e2 && e2.cols.flete !== undefined && e2.cols.ctnr !== undefined) { hojaF = { g: g, e: e2, n: n }; tipo = 'actual'; }
+    else if (e1 && e1.cols.pol !== undefined && ['f20ST', 'f40ST', 'f40HQ', 'f40NOR'].some(function (k) { return e1.cols[k] !== undefined; })) { hojaF = { g: g, e: e1, n: n }; tipo = 'modelo'; }
+  });
+  if (!hojaF) return { error: 'No encontré la hoja de fletes. Usá el modelo de BIDCOM o tu Excel de siempre (con columnas POL, Valor Flete y Tipo Ctnr).' };
+  var g = hojaF.g, C = hojaF.e.cols, v = function (r, k) { return C[k] === undefined ? '' : r[C[k]]; }, vig = vigenciaDeLibro(wb);
+  var base = function (r) {
+    var tb = v(r, 'transbordo');
+    return { pol: deLista(L.pol, v(r, 'pol')), pod: deLista(L.pod, v(r, 'pod')) || ((L.pod || [])[0] || ''), naviera: deLista(L.naviera, v(r, 'naviera')),
+      servicio: /SPOT/.test(normT(v(r, 'servicio'))) ? 'Spot' : 'Regular', directo: directoDe(tb), transbordo: directoDe(tb) ? '' : deLista(L.pol, tb),
+      tt: numX(v(r, 'tt')), pagadero: /PREPAID/.test(normT(v(r, 'pagadero'))) ? 'PREPAID' : 'COLLECT', contenedores: {},
+      localesArg: numX(v(r, 'locales')), imo: numX(v(r, 'imo')), fuel: numX(v(r, 'fuel')), puertos: numX(v(r, 'puertos')), comentarios: String(v(r, 'coment') || '').trim(), gastos: [] };
+  };
+  if (tipo === 'modelo') {
+    for (var i = hojaF.e.fila + 1; i < g.length; i++) {
+      var r = g[i]; if (!String(v(r, 'pol')).trim()) continue;
+      var x = base(r);
+      MR().contenedores.forEach(function (c) { var f = numX(v(r, 'f' + c)); if (f > 0) x.contenedores[c] = { flete: f, dias: numX(v(r, 'd' + c)) }; });
+      x._num = numX(v(r, 'ruta')) || rutas.length + 1;
+      rutas.push(x);
+    }
+    // Gastos en origen: conceptos en filas, una columna por ruta
+    var gn = wb.SheetNames.filter(function (n) { return /GASTOS/.test(normT(n)); })[0];
+    if (gn) {
+      var gg = grilla(wb.Sheets[gn]), hi = -1;
+      for (var a = 0; a < Math.min(25, gg.length) && hi < 0; a++) if ((gg[a] || []).some(function (h) { return normT(h) === 'CONCEPTO'; })) hi = a;
+      if (hi >= 0) {
+        var H = gg[hi].map(normT), cC = H.indexOf('CONCEPTO'), cU = H.indexOf('UNIDAD'), porRuta = {};
+        H.forEach(function (h, j) { var m = h.match(/^RUTA (\d+)/); if (m) porRuta[j] = Number(m[1]); });
+        gg.slice(hi + 1).forEach(function (row) {
+          var nombre = String(row[cC] || '').trim(); if (!nombre || /^TOTAL|^OTRO ESCRIBI|^OTRO$/.test(normT(nombre))) return;
+          var std = (L.conceptos || []).filter(function (c) { return normT(c) === normT(nombre); })[0];
+          var uni = deLista(L.unidades, cU >= 0 ? row[cU] : '') || unidadDef(nombre);
+          Object.keys(porRuta).forEach(function (j) {
+            var imp = numX(row[j]); if (imp === '' || imp < 0) return;
+            var ru = rutas.filter(function (x) { return x._num === porRuta[j]; })[0]; if (!ru) return;
+            ru.gastos.push(std ? { concepto: std, importe: imp, unidad: uni } : { concepto: 'Otro: ' + nombre, importe: imp, unidad: uni, descripcion: nombre });
+          });
+        });
+      } else avisos.push('La hoja de gastos en origen no tiene la columna "Concepto".');
+    } else avisos.push('El archivo no trae la hoja de gastos en origen: completalos en el formulario.');
+  } else {
+    var porClave = {};
+    for (var i2 = hojaF.e.fila + 1; i2 < g.length; i2++) {
+      var r2 = g[i2], f = numX(v(r2, 'flete')); if (!String(v(r2, 'pol')).trim() || !(f > 0)) continue;
+      var k = [normT(v(r2, 'pol')), normT(v(r2, 'pod')), normT(v(r2, 'naviera')), normT(v(r2, 'tt'))].join('|');
+      var ru2 = porClave[k]; if (!ru2) { ru2 = porClave[k] = base(r2); rutas.push(ru2); }
+      vig.desde = vig.desde || fechaCelda(v(r2, 'desde')); vig.hasta = vig.hasta || fechaCelda(v(r2, 'hasta'));
+      var cs = String(v(r2, 'ctnr')).toUpperCase().split(/[\/,;]| Y /).map(function (c) { c = c.replace(/[^A-Z0-9]/g, ''); return c === '40HC' ? '40HQ' : c === '20DV' || c === '20' ? '20ST' : c === '40DV' ? '40ST' : c; });
+      var ok = cs.filter(function (c) { return MR().contenedores.indexOf(c) >= 0; });
+      if (!ok.length) avisos.push('Fila ' + (i2 + 1) + ': contenedor "' + v(r2, 'ctnr') + '" no reconocido.');
+      ok.forEach(function (c) { ru2.contenedores[c] = { flete: f, dias: numX(v(r2, 'dias')) }; });
+    }
+    avisos.push('Tu formato de siempre no trae los gastos en origen desglosados: completalos en cada ruta antes de enviar.');
+  }
+  if (!rutas.length) return { error: 'La hoja "' + hojaF.n + '" no tiene rutas con flete cargado.' };
+  rutas.forEach(function (x) { delete x._num; x.gastos = gastosBase(x.gastos); });
+  return { rutas: rutas, vig: vig, avisos: avisos, formato: tipo === 'modelo' ? 'modelo BIDCOM' : 'formato de siempre' };
+}
+
+/* ---------- Aéreo: lectura ---------- */
+var MAPA_AIR = [['origen', ['ORIGEN', 'ORIGIN AIRPORT', 'AEROPUERTO DE ORIGEN', 'ORIGIN']], ['destino', ['DESTINO', 'DESTINATION AIRPORT', 'AEROPUERTO DE DESTINO']],
+  ['aerolinea', ['AEROLINEA', 'AEROLINEA HABITUAL', 'AIRLINE']], ['transito', ['TRANSITO DIAS', 'TRANSITO HABITUAL DIAS', 'TRANSITO', 'TRANSIT TIME']],
+  ['minimo', ['MINIMO', 'MINIMUM CHARGE', 'MINIMUM']], ['r45', ['45 KG', 'RATE 45 KG']], ['r100', ['100 KG', 'RATE 100 KG']], ['r300', ['300 KG', 'RATE 300 KG']],
+  ['r500', ['500 KG', 'RATE 500 KG']], ['r1000', ['1000 KG', 'RATE 1000 KG']], ['fuel', ['FUEL USD/KG', 'FUEL SURCHARGE USD/KG', 'FUEL SURCHARGE', 'FUEL']],
+  ['imo', ['IMO USD/KG', 'RECARGO IMO USD/KG', 'RECARGO IMO', 'IMO']], ['dest', ['GASTOS DESTINO USD', 'GASTOS DE DESTINO', 'CARGOS DE DESTINO']],
+  ['vdesde', ['VIGENCIA DESDE']], ['vhasta', ['VIGENCIA HASTA', 'VIGENCIA']], ['obs', ['OBSERVACIONES', 'COMENTARIOS']]];
+var CONCEPTO_AIR = [[/PICK/, 'Pick up'], [/EXPORT|CUSTOMS|ADUANA/, 'Export customs'], [/HANDLING/, 'Handling'], [/DOC/, 'Documentation'], [/WAREHOUSE|DEPOSITO|ALMACEN/, 'Warehouse'], [/SECURITY|SEGURIDAD/, 'Security']];
+function leerExcelAir(wb) {
+  var avisos = [], hoja = null, codigos = {};
+  A().rutas.forEach(function (r) { codigos[codigoAero(r.origen)] = r.origen; });
+  wb.SheetNames.forEach(function (n) {
+    if (hoja) return;
+    var g = grilla(wb.Sheets[n]), e = encabezados(g, MAPA_AIR);
+    if (e && e.cols.origen !== undefined && (e.cols.r500 !== undefined || e.cols.minimo !== undefined)) hoja = { g: g, e: e, n: n };
+  });
+  if (!hoja) return { error: 'No encontré la hoja del tarifario (con columnas Origen, Mínimo y tarifas por kg). Usá el modelo de BIDCOM o tu Excel de siempre.' };
+  var g = hoja.g, C = hoja.e.cols, v = function (r, k) { return C[k] === undefined ? '' : r[C[k]]; }, vig = vigenciaDeLibro(wb), filas = {};
+  for (var i = hoja.e.fila + 1; i < g.length; i++) {
+    var r = g[i], o = String(v(r, 'origen')).trim(); if (!o) continue;
+    if (/REFERENCIA/.test(normT(r.join(' ')))) break;
+    var cod = codigoAero(o), origen = codigos[cod];
+    var tieneDatos = String(v(r, 'aerolinea')).trim() || [100, 300, 500, 1000].some(function (b) { return numX(v(r, 'r' + b)) > 0; });
+    if (!origen) { if (tieneDatos) avisos.push(o + ' no está entre las rutas que pide BIDCOM: no se cargó.'); continue; }
+    if (!tieneDatos && !(numX(v(r, 'minimo')) > 0)) continue;
+    var imoT = normT(v(r, 'imo'));
+    filas[origen] = { aerolinea: String(v(r, 'aerolinea') || '').trim(), transito: numX(v(r, 'transito')), minimo: numX(v(r, 'minimo')),
+      tarifas: { 45: numX(v(r, 'r45')), 100: numX(v(r, 'r100')), 300: numX(v(r, 'r300')), 500: numX(v(r, 'r500')), 1000: numX(v(r, 'r1000')) },
+      fuel: numX(v(r, 'fuel')), imoPedido: /PEDIDO|RQST|REQUEST/.test(imoT), imo: /PEDIDO|RQST|REQUEST/.test(imoT) ? '' : numX(v(r, 'imo')),
+      destino_usd: numX(v(r, 'dest')), obs: String(v(r, 'obs') || '').trim() };
+    vig.desde = vig.desde || fechaCelda(v(r, 'vdesde')); vig.hasta = vig.hasta || fechaCelda(v(r, 'vhasta'));
+  }
+  // Gastos en origen: conceptos en filas, un aeropuerto por columna
+  var gastos = {}, gn = wb.SheetNames.filter(function (n) { return /GASTOS/.test(normT(n)); })[0];
+  if (gn) {
+    var gg = grilla(wb.Sheets[gn]), hi = -1;
+    for (var a = 0; a < Math.min(25, gg.length) && hi < 0; a++) if ((gg[a] || []).some(function (h) { return normT(h) === 'CONCEPTO'; })) hi = a;
+    if (hi >= 0) {
+      var cC = gg[hi].map(normT).indexOf('CONCEPTO'), colAp = {};
+      gg[hi].forEach(function (h, j) { var o2 = codigos[codigoAero(h)]; if (j > cC && o2) colAp[j] = o2; });
+      gg.slice(hi + 1).forEach(function (row) {
+        var nombre = String(row[cC] || '').trim(), t = normT(nombre); if (!t || /^TOTAL|^OTRO ESCRIBI/.test(t)) return;
+        var std = null; CONCEPTO_AIR.forEach(function (c) { if (!std && c[0].test(t)) std = c[1]; });
+        Object.keys(colAp).forEach(function (j) {
+          var x = valorGasto(row[j]); if (!x) return;
+          var item = { concepto: std || 'Otro', descripcion: std ? '' : nombre, importe: x.pedido ? '' : x.importe, unidad: x.unidad === 'kg' ? 'Por kg' : 'Fijo por embarque', minimo: x.unidad === 'kg' ? x.minimo : '', pedido: !!x.pedido };
+          (gastos[colAp[j]] = gastos[colAp[j]] || []).push(item);
+        });
+      });
+    } else avisos.push('La hoja de gastos en origen no tiene la columna "Concepto".');
+  } else avisos.push('El archivo no trae la hoja de gastos en origen: completalos en el formulario.');
+  if (!Object.keys(filas).length) return { error: 'La hoja "' + hoja.n + '" no tiene tarifas cargadas para las rutas de BIDCOM.' };
+  A().rutas.forEach(function (r) { if (!filas[r.origen]) avisos.push(r.origen + ': no viene en el archivo, completala a mano.'); });
+  return { filas: filas, gastos: gastos, vig: vig, avisos: avisos };
+}
+
+/* ---------- Subir: precarga el formulario ---------- */
+function subirExcel(p, archivo) {
+  if (typeof XLSX === 'undefined') { XLI[p] = { error: 'No se pudo abrir el lector de Excel. Revisá tu conexión y recargá la página.' }; render(); return; }
+  var lector = new FileReader();
+  lector.onload = function () {
+    var res;
+    try { res = (p === 'm' ? leerExcelMar : leerExcelAir)(XLSX.read(new Uint8Array(lector.result), { type: 'array', cellDates: true })); }
+    catch (e) { res = { error: 'No pude leer el archivo. Guardalo como Excel (.xlsx) y probá de nuevo.' }; }
+    res.archivo = archivo.name;
+    if (!res.error) aplicarExcel(p, res);
+    XLI[p] = res; render(); var el = document.getElementById(p + 'xlres'); if (el) el.scrollIntoView({ block: 'center' });
+  };
+  lector.readAsArrayBuffer(archivo);
+}
+function aplicarExcel(p, res) {
+  var v = p === 'm' ? mVig : aVig;
+  if (valido(res.vig.desde)) v.desde = res.vig.desde;
+  if (valido(res.vig.hasta)) v.hasta = res.vig.hasta;
+  if (!valido(res.vig.desde) || !valido(res.vig.hasta)) res.avisos.unshift('El archivo no trae la vigencia completa: revisala arriba.');
+  if (p === 'm') {
+    mForm = { rutas: res.rutas }; mPrecarga = ''; mMotivo = mUltimo() && pedidosDe('mar', mVig.desde).length ? 'negociada' : '';
+    res.resumen = res.rutas.length + ' ruta(s) desde tu ' + res.formato;
+  } else {
+    var f = { rutas: [], gastos: {} };
+    A().rutas.forEach(function (r) {
+      var x = res.filas[r.origen];
+      f.rutas.push(x ? { origen: r.origen, destino: r.destino, aerolinea: x.aerolinea, transito: x.transito, minimo: x.minimo, tarifas: x.tarifas, fuel: x.fuel, imo: x.imo, imoPedido: x.imoPedido, destino_usd: x.destino_usd, obs: x.obs }
+        : { origen: r.origen, destino: r.destino, aerolinea: '', transito: '', minimo: '', tarifas: {}, fuel: '', imo: '', imoPedido: false, destino_usd: '', obs: '' });
+      var gs = res.gastos[r.origen] || [];
+      f.gastos[r.origen] = A().conceptos.map(function (c) { var y = gs.filter(function (z) { return z.concepto === c; })[0];
+        return y ? { concepto: c, importe: y.importe, unidad: y.unidad, minimo: y.minimo, pedido: y.pedido, descripcion: '' } : { concepto: c, importe: '', unidad: 'Fijo por embarque', minimo: '', pedido: false, descripcion: '' }; })
+        .concat(gs.filter(function (z) { return z.concepto === 'Otro'; }));
+    });
+    aForm = f; aPrecarga = ''; aMotivo = aUltimo() && pedidosDe('air', aVig.desde).length ? 'negociada' : '';
+    res.resumen = Object.keys(res.filas).length + ' ruta(s) y sus gastos en origen';
+  }
+}
+function excelHTML(p) {
+  var R = XLI[p], mar = p === 'm';
+  return '<section class="panel"><h2>¿Cómo querés cargar?</h2><div class="formas">' +
+    '<div class="forma"><b>A mano</b><p class="small muted">Completá el formulario de abajo.</p></div>' +
+    '<div class="forma"><b>Con tu Excel</b><p class="small muted">Descargá el modelo (y mirá el ejemplo), completalo y subilo: el formulario se completa solo, lo revisás y enviás. También podés subir tu Excel de siempre.</p>' +
+    '<div class="acciones"><button type="button" class="btn" data-' + p + 'xl="modelo">Descargar modelo</button><button type="button" class="btn" data-' + p + 'xl="ejemplo">Descargar ejemplo</button>' +
+    '<label class="btn subir">Subir Excel<input type="file" accept=".xlsx,.xls,.xlsm" data-' + p + 'subir hidden></label></div></div></div>' +
+    (R ? '<div id="' + p + 'xlres" style="margin-top:12px">' + (R.error ? '<div class="alert bad"><b>' + esc(R.archivo || 'Archivo') + ':</b> ' + esc(R.error) + '</div>'
+      : '<div class="alert ' + (R.avisos.length ? 'warn' : 'ok') + '"><b>Cargamos ' + esc(R.resumen) + ' de "' + esc(R.archivo) + '".</b> Revisá el formulario (lo que falta queda en rojo) y enviá.' +
+        (R.avisos.length ? '<ul>' + R.avisos.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '') + '</div>') + '</div>' : '') +
+    '<p class="hint" id="' + p + 'xlmsg" style="margin:8px 0 0"></p></section>';
+}
+function bindExcel(p) {
+  document.querySelectorAll('[data-' + p + 'xl]').forEach(function (b) { b.onclick = function () { descargarExcel(p, b.getAttribute('data-' + p + 'xl') === 'ejemplo'); }; });
+  var inp = document.querySelector('[data-' + p + 'subir]');
+  if (inp) inp.onchange = function () { if (inp.files && inp.files[0]) subirExcel(p, inp.files[0]); inp.value = ''; };
+}
+
+/* ---------- Descargar modelo y ejemplo ---------- */
+var XC = { titulo: '0B3C5D', ayuda: 'FDF3D7', ayudaTx: '7A5300', req: 'FFF4CC', auto: 'EDEDED', enc: 'D6E4F0', encTx: '15212E', borde: 'C9D3DD', gasto: 'FCE4B6' };
+// Especificación neutra de las hojas; se dibuja con ExcelJS (con formato) o con SheetJS (sin formato)
+function specMar(ejemplo) {
+  var L = MR().listas, conts = MR().contenedores, hoy = D.hoy, N = 8;
+  var cols = [{ h: 'Ruta', w: 7, auto: true }, { h: 'POL', w: 16, lista: 'POL' }, { h: 'POD', w: 16, lista: 'POD' }, { h: 'Naviera', w: 14, lista: 'Naviera' },
+    { h: 'Tipo de servicio', w: 13, lista: 'Servicio' }, { h: 'Puerto de transbordo', w: 16, lista: 'POL', nota: 'Vacío = directo.' }, { h: 'Transit time (días)', w: 11, num: true }, { h: 'Pagadero', w: 11, lista: 'Pagadero' }]
+    .concat([].concat.apply([], conts.map(function (c) { return [{ h: 'Flete ' + c, w: 10, num: true, fmt: '#,##0' }, { h: 'Días libres ' + c, w: 9, num: true }]; })))
+    .concat([{ h: 'Locales ARG USD', w: 11, num: true, fmt: '#,##0', nota: 'Valor aceptado por BIDCOM: USD ' + MR().localesAceptado + '.' }, { h: 'Recarga IMO USD', w: 10, num: true }, { h: 'Fuel adjust USD', w: 10, num: true },
+      { h: 'Adicional puertos internos USD', w: 12, num: true }, { h: 'Comentarios', w: 28, opcional: true }]);
+  var ej = ejemplo ? [
+    [1, 'Ningbo', 'BUENOS AIRES', 'MSC', 'Regular', '', 38, 'COLLECT', 2700, 14, 3700, 14, 3700, 14, '', '', 800, '', 50, '', 'Ejemplo ficticio'],
+    [2, 'Shanghai', 'BUENOS AIRES', 'MAERSK', 'Regular', 'Singapore', 42, 'COLLECT', 2650, 21, 3600, 21, 3650, 21, '', '', 800, 35, 50, '', 'Ejemplo ficticio']] : [];
+  var filas = []; for (var i = 0; i < N; i++) filas.push(ej[i] || [i + 1]);
+  filas = filas.map(function (f) { var x = f.slice(); while (x.length < cols.length) x.push(''); return x; });
+  var conceptos = (L.conceptos || []).concat(['Otro (escribí cuál)', 'Otro (escribí cuál)']);
+  var valEj = { 'Handling fee': [80, 80], 'VGM / Pesada': [25, 25], 'EIR': [10, 10], 'Seal / Precinto': [12, 12], 'ORC / THC': [120, 125], 'Telex release fee': [40, 40], 'Documentation fee': [45, 45] };
+  var gcols = [{ h: 'Concepto', w: 26 }, { h: 'Unidad', w: 15, lista: 'Unidades' }].concat(Array.apply(null, Array(N)).map(function (_, k) { return { h: 'Ruta ' + (k + 1), w: 9, num: true }; }));
+  var gfilas = conceptos.map(function (c) { var otro = /^Otro/.test(c), f = [otro ? '' : c, otro ? 'Por embarque' : unidadDef(c)];
+    for (var k = 0; k < N; k++) f.push(ejemplo && valEj[c] && k < 2 ? valEj[c][k] : ''); return f; });
+  return { nombre: 'BIDCOM_Cotizacion_Maritima_' + (ejemplo ? 'EJEMPLO' : 'MODELO') + '.xlsx',
+    instrucciones: { titulo: 'Cotización marítima · BIDCOM' + (ejemplo ? ' · EJEMPLO FICTICIO' : ''), notas: [
+      'Gastos en origen: completalos en la solapa "Gastos en origen", concepto por concepto y por ruta. No envíes un total sin desglose: BIDCOM los usa para una negociación específica.',
+      'Arriba de la solapa "Fletes" completá la vigencia (desde y hasta). Puede ser 1 semana, 15 días o 1 mes.',
+      'Una fila por ruta y naviera. Cotizá cada contenedor con su valor y sus días libres. Si 40ST y 40HQ valen lo mismo, cargá el mismo valor en los dos.',
+      'Locales ARG: el valor aceptado por BIDCOM es USD ' + MR().localesAceptado + '. Recarga IMO, Fuel adjust y Adicional puertos internos, cada uno en su columna, en USD.',
+      'Puerto de transbordo vacío = servicio directo.',
+      'Cuando termines, entrá a tu link de BIDCOM, tocá "Subir Excel", revisá el formulario y enviá.'] },
+    hojas: [
+      { nombre: 'Fletes', titulo: 'Fletes por ruta y contenedor (USD)', ayuda: 'Celdas amarillas: a completar. Usá las listas desplegables. Una fila por ruta.', vigencia: ejemplo ? [hoy, sumarDias(hoy, 14)] : ['', ''], cols: cols, filas: filas, congelar: 2 },
+      { nombre: 'Gastos en origen', titulo: 'Gastos en origen por concepto (USD)', ayuda: 'Un importe por concepto y por ruta (la columna "Ruta 1" es la ruta 1 de la solapa Fletes). Dejá vacío lo que no aplica. Si hay otro concepto, escribilo en una fila "Otro".',
+        cols: gcols, filas: gfilas, congelar: 2, gasto: true }],
+    listas: { POL: L.pol || [], POD: L.pod || [], Naviera: L.naviera || [], Servicio: L.servicio || ['Regular', 'Spot'], Pagadero: L.pagadero || ['COLLECT', 'PREPAID'], Unidades: L.unidades || [] } };
+}
+function specAir(ejemplo) {
+  var R = A().rutas, hoy = D.hoy;
+  var cols = [{ h: 'Origen', w: 18, auto: true }, { h: 'Destino', w: 18, auto: true }, { h: 'Aerolínea', w: 18 }, { h: 'Tránsito (días)', w: 9, num: true }, { h: 'Mínimo', w: 9, num: true }]
+    .concat(A().breaks.map(function (b) { return { h: b + ' kg', w: 8, num: true, fmt: '0.00', opcional: b === 45 }; }))
+    .concat([{ h: 'Fuel USD/kg', w: 9, num: true, fmt: '0.00' }, { h: 'IMO USD/kg', w: 10, nota: 'Número, o escribí "A pedido".' }, { h: 'Gastos destino USD', w: 11, num: true }, { h: 'Observaciones', w: 26, opcional: true }]);
+  var filas = R.map(function (r, i) {
+    var base = [r.origen, r.destino];
+    if (!ejemplo) return base.concat(cols.slice(2).map(function () { return ''; }));
+    var k = i === 0 ? 1 : 2.9 + i * 0.1;
+    return base.concat(['Aerolínea Demo ' + (i % 2 + 1), 2 + i * 2, 150 + i * 20, '', +(3.6 * k).toFixed(2), +(3.4 * k).toFixed(2), +(3.15 * k).toFixed(2), +(2.95 * k).toFixed(2), 0.15, i % 2 ? 'A pedido' : 0.05, 340, 'Ejemplo ficticio']);
+  });
+  var conceptos = A().conceptos.concat(['Otro (escribí cuál)', 'Otro (escribí cuál)']);
+  var ejG = { 'Pick up': 70, 'Export customs': 50, 'Handling': 55, 'Documentation': 60, 'Warehouse': '0,12 x kg min 50', 'Security': '0,10 x kg min 30' };
+  var gcols = [{ h: 'Concepto', w: 22 }].concat(R.map(function (r) { return { h: r.origen, w: 18 }; }));
+  var gfilas = conceptos.map(function (c) { var otro = /^Otro/.test(c); return [otro ? '' : c].concat(R.map(function () { return ejemplo && !otro ? ejG[c] : ''; })); });
+  return { nombre: 'BIDCOM_Tarifario_Aereo_' + (ejemplo ? 'EJEMPLO' : 'MODELO') + '.xlsx',
+    instrucciones: { titulo: 'Tarifario aéreo · BIDCOM' + (ejemplo ? ' · EJEMPLO FICTICIO' : ''), notas: (A().notas.length ? A().notas : ['Completá los gastos en origen de cada aeropuerto, concepto por concepto.']).concat([
+      'Arriba de la solapa "Tarifario" completá la vigencia (desde y hasta): 1 semana, 15 días o 1 mes.',
+      'En "Gastos en origen": un número = fijo por embarque. Por kg: escribí por ejemplo "0,12 x kg min 50". Si no tenés el valor: "A pedido".',
+      'Cuando termines, entrá a tu link de BIDCOM, tocá "Subir Excel", revisá el formulario y enviá.']) },
+    hojas: [
+      { nombre: 'Tarifario', titulo: 'Tarifario aéreo · USD por kg', ayuda: 'Celdas amarillas: a completar. Las rutas son las que pide BIDCOM. Mínimo y breaks con valores propios de cada ruta.', vigencia: ejemplo ? [hoy, sumarDias(hoy, 6)] : ['', ''], cols: cols, filas: filas, congelar: 2 },
+      { nombre: 'Gastos en origen', titulo: 'Gastos en origen por aeropuerto (USD)', ayuda: 'Número = fijo por embarque · "0,12 x kg min 50" = por kg con mínimo · "A pedido" si no tenés el valor. Si hay otro concepto, escribilo en una fila "Otro".',
+        cols: gcols, filas: gfilas, congelar: 1, gasto: true }],
+    listas: {} };
+}
+function descargarExcel(p, ejemplo) {
+  var s = p === 'm' ? specMar(ejemplo) : specAir(ejemplo), msg = document.getElementById(p + 'xlmsg');
+  var bajar = function (data) {
+    var blob = new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = s.nombre; document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+    if (msg) msg.textContent = 'Descargado: ' + s.nombre;
+  };
+  try {
+    if (typeof ExcelJS !== 'undefined') { libroConFormato(s).xlsx.writeBuffer().then(bajar).catch(function () { bajar(libroSimple(s)); }); return; }
+    if (typeof XLSX !== 'undefined') { bajar(libroSimple(s)); return; }
+  } catch (e) { /* sigue abajo */ }
+  if (msg) msg.textContent = 'No se pudo generar el archivo. Revisá tu conexión y recargá la página.';
+}
+function libroSimple(s) {
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([[s.instrucciones.titulo], []].concat(s.instrucciones.notas.map(function (t, i) { return [(i + 1) + '. ' + t]; }))), 'Instrucciones');
+  s.hojas.forEach(function (h) {
+    var aoa = [[h.titulo], [h.ayuda]].concat(h.vigencia ? [['Vigencia desde', h.vigencia[0], 'Vigencia hasta', h.vigencia[1]]] : [[]]).concat([[], h.cols.map(function (c) { return c.h; })]).concat(h.filas);
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), h.nombre);
+  });
+  return XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+}
+function libroConFormato(s) {
+  var wb = new ExcelJS.Workbook(), fill = function (h) { return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + h } }; };
+  var borde = function () { var b = { style: 'thin', color: { argb: 'FF' + XC.borde } }; return { top: b, left: b, bottom: b, right: b }; };
+  var letra = function (n) { var t = ''; for (; n > 0; n = Math.floor((n - 1) / 26)) t = String.fromCharCode(65 + (n - 1) % 26) + t; return t; };
+  var fuente = function (o) { return Object.assign({ name: 'Arial', size: 10, color: { argb: 'FF' + XC.encTx } }, o || {}); };
+  // Instrucciones
+  var wi = wb.addWorksheet('Instrucciones', { properties: { tabColor: { argb: 'FF' + XC.titulo } }, views: [{ showGridLines: false }] });
+  wi.columns = [{ width: 5 }, { width: 115 }];
+  wi.mergeCells('A1:B1'); wi.getCell('A1').value = s.instrucciones.titulo; wi.getCell('A1').font = fuente({ size: 15, bold: true, color: { argb: 'FFFFFFFF' } });
+  wi.getCell('A1').fill = fill(XC.titulo); wi.getRow(1).height = 30; wi.getCell('A1').alignment = { vertical: 'middle', indent: 1 };
+  wi.getCell('B3').value = 'LO IMPORTANTE'; wi.getCell('B3').font = fuente({ bold: true, size: 11, color: { argb: 'FF' + XC.titulo } });
+  s.instrucciones.notas.forEach(function (t, i) {
+    var r = 4 + i, a = wi.getCell('A' + r), b = wi.getCell('B' + r);
+    a.value = i === 0 ? '!' : '•'; b.value = t; a.alignment = { horizontal: 'center', vertical: 'top' }; b.alignment = { wrapText: true, vertical: 'top' };
+    a.font = b.font = fuente({ bold: i === 0 }); if (i === 0) { a.fill = b.fill = fill(XC.gasto); }
+    wi.getRow(r).height = Math.max(18, Math.ceil(t.length / 105) * 15 + 4);
+  });
+  // Listas (oculta)
+  var refs = {}, nombres = Object.keys(s.listas);
+  if (nombres.length) {
+    var wl = wb.addWorksheet('Listas'); wl.state = 'hidden';
+    nombres.forEach(function (n, j) { wl.getCell(1, j + 1).value = n; s.listas[n].forEach(function (v, k) { wl.getCell(k + 2, j + 1).value = v; });
+      refs[n] = 'Listas!$' + letra(j + 1) + '$2:$' + letra(j + 1) + '$' + Math.max(2, s.listas[n].length + 1); });
+  }
+  s.hojas.forEach(function (h) {
+    var ws = wb.addWorksheet(h.nombre, { properties: { tabColor: { argb: 'FF' + (h.gasto ? '9C6500' : '2E75B6') } }, views: [{ state: 'frozen', xSplit: h.congelar || 0, ySplit: 5 }] });
+    var n = h.cols.length, ult = letra(n), f0 = 6, f1 = 5 + h.filas.length;
+    ws.columns = h.cols.map(function (c) { return { width: c.w || 12 }; });
+    ws.mergeCells('A1:' + ult + '1'); ws.getCell('A1').value = h.titulo; ws.getCell('A1').font = fuente({ size: 14, bold: true, color: { argb: 'FFFFFFFF' } });
+    ws.getCell('A1').fill = fill(XC.titulo); ws.getRow(1).height = 26; ws.getCell('A1').alignment = { vertical: 'middle', indent: 1 };
+    ws.mergeCells('A2:' + ult + '2'); ws.getCell('A2').value = h.ayuda; ws.getCell('A2').font = fuente({ color: { argb: 'FF' + XC.ayudaTx } });
+    ws.getCell('A2').fill = fill(XC.ayuda); ws.getCell('A2').alignment = { wrapText: true, vertical: 'middle', indent: 1 }; ws.getRow(2).height = 30;
+    if (h.vigencia) {
+      [['A3', 'Vigencia desde'], ['D3', 'Vigencia hasta']].forEach(function (x) { ws.getCell(x[0]).value = x[1]; ws.getCell(x[0]).font = fuente({ bold: true }); ws.getCell(x[0]).alignment = { horizontal: 'right' }; });
+      ws.mergeCells('A3:B3');
+      [[3, 12], [4, 15], [5, 12]].forEach(function (x) { ws.getColumn(x[0]).width = Math.max(ws.getColumn(x[0]).width || 0, x[1]); });
+      [['C3', h.vigencia[0]], ['E3', h.vigencia[1]]].forEach(function (x) {
+        var c = ws.getCell(x[0]); if (x[1]) c.value = diasEntre('1899-12-30', x[1]); c.numFmt = 'dd/mm/yyyy'; c.fill = fill(XC.req); c.border = borde();
+        ws.dataValidations.add(x[0], { type: 'date', operator: 'greaterThan', allowBlank: true, formulae: [43831], showErrorMessage: true, errorTitle: 'Fecha', error: 'Escribí la fecha como dd/mm/aaaa.' });
+      });
+      ws.getCell('F3').value = '1 semana, 15 días o 1 mes'; ws.getCell('F3').font = fuente({ italic: true, color: { argb: 'FF5B6876' } });
+      ws.getRow(3).height = 22;
+    }
+    h.cols.forEach(function (c, i) {
+      var cell = ws.getCell(5, i + 1); cell.value = c.h; if (c.nota) cell.note = c.nota;
+      cell.font = fuente({ bold: true }); cell.fill = fill(h.gasto ? XC.gasto : XC.enc); cell.border = borde(); cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    });
+    ws.getRow(5).height = 34;
+    h.filas.forEach(function (f, k) {
+      h.cols.forEach(function (c, i) {
+        var cell = ws.getCell(f0 + k, i + 1), v = f[i];
+        if (v !== '' && v !== undefined && v !== null) cell.value = v;
+        var auto = c.auto || (h.gasto && i === 0 && v);
+        cell.fill = fill(auto ? XC.auto : c.opcional ? 'FFFFFF' : XC.req); cell.border = borde(); cell.font = fuente({ bold: !!auto && i === 0 });
+        if (c.fmt) cell.numFmt = c.fmt;
+      });
+    });
+    h.cols.forEach(function (c, i) {
+      var rango = letra(i + 1) + f0 + ':' + letra(i + 1) + f1;
+      if (c.lista && refs[c.lista]) ws.dataValidations.add(rango, { type: 'list', allowBlank: true, formulae: [refs[c.lista]], showErrorMessage: true, errorStyle: 'warning', errorTitle: 'Fuera de la lista', error: 'No está en la lista. Si es correcto, aceptá igual.' });
+      else if (c.num) ws.dataValidations.add(rango, { type: 'decimal', operator: 'greaterThanOrEqual', allowBlank: true, formulae: [0], showErrorMessage: true, errorTitle: 'Número', error: 'Escribí solo el número, sin USD ni otros textos.' });
+    });
+  });
+  wb.views = [{ activeTab: 1 }];
+  return wb;
+}
+
 render();
 </script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 </body>
 </html>

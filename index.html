@@ -195,7 +195,7 @@ td input, td select { padding: 5px 7px; font-size: 13px; }
 
 <div class="topbar">
   <div class="topbar-in">
-    <div class="brand"><b>Tarifador BIDCOM</b><button type="button" class="version-tag" data-nav="novedades" title="Ver novedades">Versión 1.6 · 07/10/2026</button></div>
+    <div class="brand"><b>Tarifador BIDCOM</b><button type="button" class="version-tag" data-nav="novedades" title="Ver novedades">Versión 1.7 · 08/10/2026</button></div>
     <div class="modes" role="group" aria-label="Modo de transporte"><button type="button" class="mode-btn" data-mode-switch="sea">Marítimo</button><button type="button" class="mode-btn" data-mode-switch="air">Aéreo</button></div>
     <div class="who">
       <span class="demo-tag">Prototipo · datos ficticios</span>
@@ -870,9 +870,16 @@ const GH = 'https://github.com/solp-boop/tarifador-bidcom/blob/main/google-sheet
 function viewNews() {
   const item = (fecha, version, titulo, puntos) => `<section class="panel news"><span class="when">${fecha} · versión ${version}</span><h3>${titulo}</h3><ul>${puntos.map(x => `<li>${x}</li>`).join('')}</ul></section>`;
   return `<div class="page-head"><div><h1>Novedades</h1><p>Todos los cambios se ven en este mismo link. Si no ves algo nuevo, recargá la página (F5). El número de versión arriba a la izquierda te dice qué versión estás viendo.</p></div></div>
+    ${item('08/10/2026', '1.7', 'Carga a mano o con Excel, en marítimo y aéreo', [
+      'En el link del agente, arriba de cada formulario, hay un recuadro <b>¿Cómo querés cargar?</b>: <b>A mano</b> o <b>Con tu Excel</b>.',
+      '<b>Descargar modelo</b> (en blanco) y <b>Descargar ejemplo</b> (completo, con datos ficticios), con colores, listas desplegables y las instrucciones en la primera solapa. El modelo aéreo ya trae las rutas que pide BIDCOM.',
+      '<b>Subir Excel</b>: el formulario se completa solo con lo que trae el archivo. El agente lo revisa (lo que falta queda en rojo) y envía. Es el mismo envío que a mano: pasa por la aprobación del team y se pega igual en la base madre.',
+      'También acepta el <b>Excel de siempre</b>: marítimo con las columnas de la base madre (FFWW, Valor Flete, Tipo Ctnr…) y el tarifario semanal aéreo con su solapa de gastos en origen. Si el marítimo de siempre no trae gastos en origen desglosados, el formulario los pide.',
+      'En TARIFADOR Cotizaciones, el historial de cada tarifa dice si se cargó desde un Excel y con qué nombre de archivo.',
+      'En este prototipo: Aéreo, Ver como un agente, Tarifario semanal: botones <b>Subir Excel</b>, <b>Descargar modelo</b> y <b>Descargar ejemplo</b>. Marítimo: Nueva cotización, opción Subir Excel.'])}
     <section class="panel news"><span class="when">07/10/2026 · versión 1.6</span><h3>Cómo circula una tarifa</h3>
       <ol class="flujo">
-        <li><b>El agente carga</b> en su link, con su vigencia (1 semana, 15 días o 1 mes). Nunca ve a otros agentes, la menor, la mediana ni el target.</li>
+        <li><b>El agente carga</b> en su link, a mano o subiendo su Excel, con su vigencia (1 semana, 15 días o 1 mes). Nunca ve a otros agentes, la menor, la mediana ni el target.</li>
         <li><b>Se pega sola</b> en <b>Cotizaciones Maritimos SIN NEGOCIAR</b>, en las filas vacías debajo del histórico. <b>Al team le llega un mail</b> con la comparación.</li>
         <li><b>El team decide</b> en la planilla: Aprobar, Pedir mejora o Descartar. Al agente no le llega nada hasta que el team envía las decisiones.</li>
         <li><b>El agente recibe el pedido de mejora</b> por mail con su link. Al entrar, ve qué rutas mejorar (y el valor objetivo, si el team lo decide).</li>
@@ -887,7 +894,7 @@ function viewNews() {
       'Mails automáticos: al <b>team</b> cuando un agente carga o responde; al <b>agente</b> cuando el team pide una mejora; y al agente (con copia al team) <b>5 días antes del vencimiento</b>.',
       '<b>Vigencia desde / hasta</b> en marítimo y aéreo, con botones de 1 semana, 15 días o 1 mes. El pegado acepta tanto "Validez Quincena Desde" como "Vigencia desde" en la base madre.'])}
     ${item('07/10/2026', '1.5', 'Marítimo en el link del agente y una sola forma de carga', [
-      'Se sacó <b>Subir Excel</b>: el agente carga siempre en su formulario. Ya no hay dos formas de cargar lo mismo.',
+      'Se sacó <b>Subir Excel</b> (volvió en la 1.7, junto con el modelo y el ejemplo para descargar).',
       'Marítimo pide <b>Locales ARG</b> (referencia aceptada USD 800: si cotizan más, se les avisa y BIDCOM lo ve marcado), <b>Recarga IMO</b>, <b>Fuel adjust</b> y <b>Adicional puertos internos</b>.',
       'En la planilla de Google el link del agente tiene dos pestañas, <b>Marítimo</b> y <b>Aéreo</b>. Marítimo se carga por quincena y se pega solo en tu base madre: la tarifa inicial en <b>Cotizaciones Maritimos SIN NEGOCIAR</b> y la negociada en <b>Cotizaciones Maritimos Negociado</b>, con tus mismas columnas (una fila por contenedor; 40ST y 40HQ al mismo valor van como 40ST/40HQ).',
       'Inicial contra negociado y ahorro por ruta y contenedor (desde la 1.6, dentro de TARIFADOR Cotizaciones).'])}
@@ -2044,7 +2051,8 @@ function viewAirMine() {
     <section class="panel" style="border-color:var(--accent)"><header><h2>Solicitud vigente · <span class="mono">${esc(req.week)}</span></h2><span class="muted small">Vigencia ${esc(req.from)} al ${esc(req.to)} · responder hasta <b>${esc(req.deadline)}</b></span></header>
       <p>Rutas a cotizar: ${req.routes.filter(r => r.on).map(r => `<b>${esc(apLabel(r.origin))}</b>`).join(', ')} → Buenos Aires - EZE.</p>
       <div class="row" style="margin-top:12px">${thisWeek ? `<span>${pill('Ya respondiste esta semana: ' + AGENT_STATUS[thisWeek.status][0], AGENT_STATUS[thisWeek.status][1])}</span>` :
-        `<button class="btn primary" data-act="a-new">Cargar tarifas</button>`}</div></section>
+        `<button class="btn primary" data-act="a-new">Cargar a mano</button><button class="btn" data-nav="a-importar">Subir Excel</button>`}</div>
+      <div class="row" style="margin-top:10px"><span class="muted small">Para cargar con Excel:</span><button class="btn small" data-act="dl-model" data-mode="air">Descargar modelo</button><button class="btn small" data-act="dl-example" data-mode="air">Descargar ejemplo</button></div></section>
     ${importantPanel('air')}
     <section class="panel"><header><h2>Mis tarifarios</h2></header><div>${mine.map(card).join('') || '<p class="empty">Todavía no enviaste tarifarios aéreos.</p>'}</div></section>`;
 }
@@ -2266,6 +2274,8 @@ function viewAirImport() {
   const R = ui.importResult?.mode === 'air' ? ui.importResult : null;
   return `<div class="page-head"><div><h1>Importar tarifario aéreo</h1><p>Aceptamos el modelo BIDCOM y también el archivo semanal que se usa hoy. Te mostramos qué falta antes de importar.</p></div></div>
     ${importantPanel('air')}
+    <section class="panel"><header><h2>Paso 1 · Descargá el modelo</h2></header><p class="muted small">Completalo (mirá el ejemplo para ver cómo queda) o usá tu archivo semanal de siempre.</p>
+      <div class="row" style="margin-top:8px"><button class="btn" data-act="dl-model" data-mode="air">Modelo en blanco</button><button class="btn" data-act="dl-example" data-mode="air">Ejemplo completo</button></div></section>
     <div class="dropzone" id="drop"><p>Arrastrá el Excel acá</p><div class="row" style="justify-content:center"><button class="btn primary" data-act="pick-file">Elegir archivo</button></div>
       <button class="linkbtn small" data-act="a-sample">O probá con un archivo de ejemplo en formato actual</button></div>
     ${R ? importPreview(R) : ''}`;

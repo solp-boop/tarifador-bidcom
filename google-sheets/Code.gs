@@ -491,6 +491,7 @@ function recibirEnvio(clave, modo, envio) {
     });
 
     var desde = aFecha(envio.desde), hasta = aFecha(envio.hasta), stamp = fechaHora(ahora);
+    var deArchivo = envio.archivo ? ' · cargada desde Excel "' + String(envio.archivo).replace(/[\r\n"]/g, ' ').slice(0, 80) + '"' : '';
     var filas = lineas.map(function (l) {
       var f = []; for (var c = 0; c < CZ.length; c++) f.push('');
       f[K.id] = id; f[K.recibido] = ahora; f[K.modo] = modo; f[K.ffww] = agente.nombre; f[K.contacto] = agente.contacto || ''; f[K.version] = version; f[K.vigente] = 'SI';
@@ -498,7 +499,7 @@ function recibirEnvio(clave, modo, envio) {
       f[K.flete] = l.flete; f[K.total] = l.total; f[K.locales] = l.locales; f[K.gorigen] = l.gorigen; f[K.estado] = l.estado;
       f[K.detalle] = JSON.stringify(modo === MODO.MAR ? { ruta: l.ruta, r: l.r } : { r: l.r, g: l.g });
       var alerta = modo === MODO.MAR && l.locales > cfg.locales ? ' · Locales ARG USD ' + l.locales + ' (aceptado ' + cfg.locales + ')' : '';
-      f[K.historial] = stamp + ' · Recibida v' + version + ', ' + l.tipo.toLowerCase() + ' (' + l.motivo + ')' + alerta;
+      f[K.historial] = stamp + ' · Recibida v' + version + ', ' + l.tipo.toLowerCase() + ' (' + l.motivo + ')' + deArchivo + alerta;
       return f;
     });
     var primera = sh.getLastRow() + 1;
@@ -506,7 +507,7 @@ function recibirEnvio(clave, modo, envio) {
     datos = datos.concat(filas);
     var tipoEnvio = lineas.some(function (l) { return l.tipo === TIPOS.NEGOCIADA; }) ? TIPOS.NEGOCIADA : TIPOS.INICIAL;
     registrar(agente.nombre, 'Envió tarifas ' + modo.toLowerCase() + ' ' + fechaCorta(desde) + '–' + fechaCorta(hasta) + ' (v' + version + ', ' + MOTIVOS[motivo].toLowerCase() + ')',
-      lineas.length + ' tarifa(s). ID ' + id);
+      lineas.length + ' tarifa(s). ID ' + id + deArchivo);
     SpreadsheetApp.flush();
 
     try { datos = recalcular(cfg, sh, datos); } catch (e1) { registrar('Sistema', 'Error al recalcular la comparación', String(e1 && e1.message || e1)); }

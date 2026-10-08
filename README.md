@@ -1,6 +1,6 @@
 # Tarifador BIDCOM
 
-Portal de cotizaciones de logística internacional (marítimo y aéreo): cada agente carga sus tarifas en su link personal, el team de BIDCOM las compara (menor de la ronda e histórico), aprueba o pide mejoras, y todo se pega solo en la base madre.
+Portal de cotizaciones de logística internacional (marítimo y aéreo): cada agente carga sus tarifas en su link personal (a mano o subiendo su Excel), el team de BIDCOM las compara (menor de la ronda e histórico), aprueba o pide mejoras, y todo se pega solo en la base madre.
 
 > **Prototipo con datos ficticios.** Ningún agente, tarifa ni gasto de esta versión es real. No subir tarifas reales a este repositorio: es público.
 
