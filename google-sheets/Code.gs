@@ -28,7 +28,16 @@ var DECISIONES = ['Aprobar', 'Pedir mejora', 'Descartar'];
 var BREAKS = [45, 100, 300, 500, 1000];
 var CONCEPTOS = ['Pick up', 'Export customs', 'Handling', 'Documentation', 'Warehouse', 'Security'];
 var UNIDADES = ['Fijo por embarque', 'Por kg'];
-var CONTENEDORES = ['20ST', '40ST', '40HQ', '40NOR'];
+var CONTENEDORES = ['20ST', '40ST/40HQ', '40NOR'];       // los tipos que usa la base madre
+var SERVICIOS = ['DIRECTO', 'TRASBORDO'];
+// Normaliza cualquier forma de escribir el contenedor a los tipos de la base madre
+function tipoCtnr(v) {
+  var t = String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (/NOR/.test(t)) return '40NOR';
+  if (/^20/.test(t)) return '20ST';
+  if (/^40/.test(t)) return '40ST/40HQ';
+  return '';
+}
 
 /* ------------------------------------------------------------------ */
 /* Pestaña TARIFADOR Ajustes: bloques uno al lado del otro              */
@@ -48,7 +57,6 @@ var AJ = [
   ['marIni', 'Pestaña tarifas iniciales', 'Cotizaciones Maritimos SIN NEGOCIAR', 'Primer envío de cada agente (y sus correcciones), en las filas vacías debajo del histórico.'],
   ['marNeg', 'Pestaña tarifas negociadas', 'Cotizaciones Maritimos Negociado', 'La tarifa que el agente manda después de un pedido de mejora.'],
   ['locales', 'Locales ARG aceptado (USD)', 800, 'Se le muestra al agente. Si cotiza más, se marca en el aviso al team.'],
-  ['combinado', '40ST y 40HQ con el mismo valor se pegan como', '40ST/40HQ', 'Si el agente cotiza 40ST y 40HQ al mismo valor y días libres, va una sola fila.'],
   ['AÉREO'],
   ['airIni', 'Pestaña tarifas iniciales (aéreo)', '', 'Nombre exacto de la pestaña de la base madre. Vacío = el aéreo queda solo en TARIFADOR Cotizaciones.'],
   ['airNeg', 'Pestaña tarifas negociadas (aéreo)', '', 'Vacío = la misma pestaña.'],
@@ -60,7 +68,7 @@ var LISTAS_DEF = [
   ['POL', 'Shanghai', 'Ningbo', 'Shenzhen', 'Yantian', 'Shekou', 'Qingdao', 'Tianjin', 'Xiamen', 'Nansha', 'Guangzhou', 'Hong Kong', 'Busan', 'Singapore'],
   ['POD', 'BUENOS AIRES', 'MONTEVIDEO', 'SANTOS'],
   ['Naviera', 'MSC', 'MAERSK', 'CMA CGM', 'COSCO', 'EVERGREEN', 'HAPAG-LLOYD', 'ONE', 'OOCL', 'HMM', 'ZIM', 'PIL', 'YANG MING', 'WAN HAI', 'TBC'],
-  ['Tipo de servicio', 'Regular', 'Spot'],
+  ['Tipo de servicio', 'DIRECTO', 'TRASBORDO'],
   ['Pagadero', 'COLLECT', 'PREPAID'],
   ['Conceptos gastos en origen', 'Handling fee', 'VGM / Pesada', 'EIR', 'Seal / Precinto', 'ORC / THC', 'Telex release fee', 'Documentation fee', 'DG fee', 'Pick up fee EXW', 'Warehouse fee', 'Customs clearance fee', 'Issue customs doc fee'],
   ['Unidades', 'Por BL', 'Por contenedor', 'Por embarque', 'Por CBM', 'Por tonelada']];
@@ -261,7 +269,7 @@ function migrarViejas(ss, aj) {
   var k = firma('Configuración');
   if (k) {
     var v = k.getRange('B4:B18').getValues().map(function (r) { return r[0]; });
-    var pares = { baseUrl: v[0], airIni: v[1], auto: v[2], imoTexto: v[3], airNeg: v[5], marIni: v[10], marNeg: v[11], locales: v[12], combinado: v[14] };
+    var pares = { baseUrl: v[0], airIni: v[1], auto: v[2], imoTexto: v[3], airNeg: v[5], marIni: v[10], marNeg: v[11], locales: v[12] };
     Object.keys(pares).forEach(function (key) { if (String(pares[key]).trim()) escribirAjuste(aj, key, pares[key]); });
     hecho.push('ajustes de la base madre');
   }
@@ -313,7 +321,7 @@ function leerAjustes() {
     teamMails: String(v.teamMails || '').split(/[,;\s]+/).map(function (x) { return x.trim(); }).filter(function (x) { return /@/.test(x); }),
     reduccion: red, mostrarTarget: String(v.mostrarTarget).trim().toUpperCase() !== 'NO', diasAviso: num(v.diasAviso) >= 0 && v.diasAviso !== '' ? num(v.diasAviso) : 5,
     baseUrl: String(v.baseUrl || '').trim(), auto: String(v.auto).trim().toUpperCase() !== 'NO',
-    marIni: String(v.marIni || '').trim(), marNeg: String(v.marNeg || '').trim(), locales: num(v.locales) || 800, combinado: String(v.combinado || '').trim() || '40ST/40HQ',
+    marIni: String(v.marIni || '').trim(), marNeg: String(v.marNeg || '').trim(), locales: num(v.locales) || 800,
     airIni: String(v.airIni || '').trim(), airNeg: String(v.airNeg || '').trim(), imoTexto: String(v.imoTexto || '').trim() || 'Upon RQST', peso: num(v.peso) || 500
   };
   var A = BLOQUE.AGENTES - 1;
@@ -544,7 +552,6 @@ function validarEnvioMar(envio, listas) {
     if (!String(r.pol || '').trim()) err.push(p + 'falta el POL.');
     if (!String(r.pod || '').trim()) err.push(p + 'falta el POD.');
     if (!String(r.naviera || '').trim()) err.push(p + 'falta la naviera.');
-    if (!String(r.servicio || '').trim()) err.push(p + 'falta el tipo de servicio (Regular o Spot).');
     if (!r.directo && !String(r.transbordo || '').trim()) err.push(p + 'falta el puerto de transbordo.');
     if (!(num(r.tt) > 0)) err.push(p + 'falta el transit time.');
     if (['COLLECT', 'PREPAID'].indexOf(r.pagadero) < 0) err.push(p + 'falta pagadero.');
@@ -593,7 +600,7 @@ function validarEnvioAir(envio, cfg) {
 }
 
 // Gastos en origen llevados a 1 contenedor (BL, embarque y contenedor completos; CBM y toneladas con un volumen estándar)
-var CBM_STD = { '20ST': 28, '40ST': 58, '40HQ': 68, '40NOR': 58 }, TON_STD = { '20ST': 10, '40ST': 12, '40HQ': 12, '40NOR': 12 };
+var CBM_STD = { '20ST': 28, '40ST/40HQ': 63, '40NOR': 58 }, TON_STD = { '20ST': 10, '40ST/40HQ': 12, '40NOR': 12 };
 function gastosPorContenedor(gastos, c) {
   return Math.round((gastos || []).reduce(function (s, g) {
     var a = num(g.importe); if (g.importe === '' || isNaN(a)) return s;
@@ -606,7 +613,7 @@ function lineasMar(envio) {
   envio.rutas.forEach(function (r, k) {
     var gastos = (r.gastos || []).filter(function (c) { return c.importe !== '' && c.importe !== null && c.importe !== undefined; })
       .map(function (c) { return { concepto: c.concepto, importe: num(c.importe), unidad: c.unidad, descripcion: c.descripcion || '' }; });
-    var rr = JSON.parse(JSON.stringify(r)); rr.gastos = gastos;
+    var rr = JSON.parse(JSON.stringify(r)); rr.gastos = gastos; rr.servicio = r.directo ? 'DIRECTO' : 'TRASBORDO';
     var recargos = (num(r.imo) || 0) + (num(r.fuel) || 0) + (num(r.puertos) || 0);
     CONTENEDORES.forEach(function (c) {
       var x = (r.contenedores || {})[c]; if (!x || !(num(x.flete) > 0)) return;
@@ -692,14 +699,14 @@ function historicoMar(cfg) {
     return hoja.getRange(inicio, 1, ultima - inicio + 1, hoja.getLastColumn()).getValues().map(function (r) {
       var v = function (c) { return M[c] ? r[M[c] - 1] : ''; }, flete = num(v('flete'));
       if (!(flete > 0) || !(v('desde') instanceof Date)) return null;
-      return { pol: claveTexto(v('pol')), pod: claveTexto(v('pod')), ctnrs: String(v('ctnr')).split('/').map(claveTexto), desde: aDia(v('desde')),
+      return { pol: claveTexto(v('pol')), pod: claveTexto(v('pod')), ctnr: tipoCtnr(v('ctnr')), desde: aDia(v('desde')),
         valor: flete + (num(v('imo')) || 0) + (num(v('fuel')) || 0) + (num(v('puertos')) || 0) };
     }).filter(Boolean);
   } catch (e) { return []; }
 }
 function medianaMar(hist, x) {
-  var d0 = aDia(x[K.desde]), min = d0 - 180 * 86400000, pol = claveTexto(x[K.origen]), pod = claveTexto(x[K.destino]), c = claveTexto(x[K.ctnr]);
-  return mediana(hist.filter(function (h) { return h.pol === pol && (!h.pod || h.pod === pod) && h.ctnrs.indexOf(c) >= 0 && h.desde < d0 && h.desde >= min; })
+  var d0 = aDia(x[K.desde]), min = d0 - 180 * 86400000, pol = claveTexto(x[K.origen]), pod = claveTexto(x[K.destino]);
+  return mediana(hist.filter(function (h) { return h.pol === pol && (!h.pod || h.pod === pod) && h.ctnr === x[K.ctnr] && h.desde < d0 && h.desde >= min; })
     .map(function (h) { return h.valor; }));
 }
 function medianaAir(datos, vig, x) {
@@ -924,14 +931,12 @@ function pegarEnvioEnBase(cfg, modo, agente, lineas, desde, hasta, version, ahor
     var porRuta = {}, filas = [];
     aPegar.forEach(function (l) { (porRuta[l.ruta] = porRuta[l.ruta] || []).push(l); });
     Object.keys(porRuta).forEach(function (k) {
-      var ls = porRuta[k], a = ls.filter(function (l) { return l.ctnr === '40ST'; })[0], b = ls.filter(function (l) { return l.ctnr === '40HQ'; })[0];
-      var juntar = a && b && a.tipo === b.tipo && a.correccion === b.correccion && a.flete === b.flete && a.dias === b.dias;
-      ls.forEach(function (l) {
-        if (juntar && l === b) return;
+      porRuta[k].forEach(function (l) {
         var r = l.r;
+        // Como en el histórico: Tipo de Servicio = DIRECTO o TRASBORDO; Transbordo = el puerto (vacío si es directo)
         filas.push({ tipo: l.tipo, reemplazar: l.correccion || l.tipo === TIPOS.NEGOCIADA, transporte: 'Maritimo', ffww: agente.nombre, contacto: agente.contacto || agente.nombre,
-          flete: l.flete, pol: r.pol, tt: num(r.tt), servicio: r.servicio, linea: r.naviera, pod: r.pod, transbordo: r.directo ? 'Directo' : r.transbordo, desde: desde, hasta: hasta,
-          dias: l.dias, pagadero: r.pagadero, locales: num(r.localesArg), ctnr: juntar && l === a ? cfg.combinado : l.ctnr, coment: r.comentarios || '', imo: num(r.imo), fuel: num(r.fuel), puertos: num(r.puertos) });
+          flete: l.flete, pol: r.pol, tt: num(r.tt), servicio: r.directo ? 'DIRECTO' : 'TRASBORDO', linea: r.naviera, pod: r.pod, transbordo: r.directo ? '' : r.transbordo, desde: desde, hasta: hasta,
+          dias: l.dias, pagadero: r.pagadero, locales: num(r.localesArg), ctnr: l.ctnr, coment: r.comentarios || '', imo: num(r.imo), fuel: num(r.fuel), puertos: num(r.puertos) });
       });
     });
     pegarMaritimo(filas, cfg);
@@ -971,7 +976,7 @@ var MAPA_MARITIMO = [
   ['puertos', ['ADICIONAL PUERTOS INTERNOS'], true]
 ];
 var NOMBRE_CAMPO_MAR = { transporte: 'Tipo de transporte (Maritimo)', ffww: 'Empresa del agente', contacto: 'Contacto del agente', flete: 'Valor flete', pol: 'POL', tt: 'Transit time',
-  servicio: 'Tipo de servicio (Regular / Spot)', linea: 'Naviera', pod: 'POD', transbordo: 'Directo o puerto de transbordo', desde: 'Vigencia desde', hasta: 'Vigencia hasta',
+  servicio: 'Tipo de servicio (DIRECTO / TRASBORDO)', linea: 'Naviera', pod: 'POD', transbordo: 'Puerto de transbordo (vacío si es directo)', desde: 'Vigencia desde', hasta: 'Vigencia hasta',
   dias: 'Días libres', pagadero: 'Pagadero', locales: 'Locales ARG', ctnr: 'Contenedor', coment: 'Comentarios', imo: 'Recarga IMO', fuel: 'Fuel adjust', puertos: 'Adicional puertos internos' };
 
 function valorMar(campo, f) {

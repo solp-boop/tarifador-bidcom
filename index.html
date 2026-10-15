@@ -195,7 +195,7 @@ td input, td select { padding: 5px 7px; font-size: 13px; }
 
 <div class="topbar">
   <div class="topbar-in">
-    <div class="brand"><b>Tarifador BIDCOM</b><button type="button" class="version-tag" data-nav="novedades" title="Ver novedades">Versión 1.7.1 · 15/10/2026</button></div>
+    <div class="brand"><b>Tarifador BIDCOM</b><button type="button" class="version-tag" data-nav="novedades" title="Ver novedades">Versión 1.8 · 15/10/2026</button></div>
     <div class="modes" role="group" aria-label="Modo de transporte"><button type="button" class="mode-btn" data-mode-switch="sea">Marítimo</button><button type="button" class="mode-btn" data-mode-switch="air">Aéreo</button></div>
     <div class="who">
       <span class="demo-tag">Prototipo · datos ficticios</span>
@@ -870,6 +870,12 @@ const GH = 'https://github.com/solp-boop/tarifador-bidcom/blob/main/google-sheet
 function viewNews() {
   const item = (fecha, version, titulo, puntos) => `<section class="panel news"><span class="when">${fecha} · versión ${version}</span><h3>${titulo}</h3><ul>${puntos.map(x => `<li>${x}</li>`).join('')}</ul></section>`;
   return `<div class="page-head"><div><h1>Novedades</h1><p>Todos los cambios se ven en este mismo link. Si no ves algo nuevo, recargá la página (F5). El número de versión arriba a la izquierda te dice qué versión estás viendo.</p></div></div>
+    ${item('15/10/2026', '1.8', 'Marítimo: servicio, transbordo y contenedores como en la base madre', [
+      '<b>Tipo de servicio</b>: DIRECTO o TRASBORDO (se sacó Regular / Spot). Se pega así en la columna "Tipo de Servicio".',
+      '<b>Transbordo</b>: si es TRASBORDO, el agente elige el puerto y eso va en la columna "Transbordo". Si es directo, queda vacía, como en el histórico.',
+      '<b>Contenedores</b>: 20ST, 40ST/40HQ (un solo valor para los dos) y 40NOR. Son los tres tipos de la columna "Tipo Ctnr". Ya no existe 40ST suelto.',
+      'El Excel modelo y el ejemplo vienen con estas columnas, y al subir un Excel viejo (con 40ST y 40HQ separados, o "40HC", "VIA SINGAPORE") se acomoda solo.',
+      'Esto está en la planilla real (formulario del agente y pegado). Este prototipo sigue mostrando los datos de demostración con el formato anterior.'])}
     ${item('15/10/2026', '1.7.1', 'El Excel de cotización vuelve a tener el diseño de antes', [
       'Modelo y ejemplo (marítimo y aéreo) con <b>bandas de color por grupo</b> (ruta y servicio, cada contenedor, Locales ARG y recargos, control) y encabezados del color de su grupo.',
       'Tres colores de celda: <b>amarillo</b> obligatorio, <b>celeste</b> opcional o según el caso, <b>gris</b> no se escribe.',

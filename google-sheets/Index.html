@@ -223,18 +223,21 @@ function gastosBase(prev) {
   return std.concat(extra);
 }
 function rutaMarVacia(base) {
-  return { pol: '', pod: base ? base.pod : ((MR().listas.pod || [])[0] || 'BUENOS AIRES'), naviera: '', servicio: 'Regular', directo: true, transbordo: '', tt: '',
+  return { pol: '', pod: base ? base.pod : ((MR().listas.pod || [])[0] || 'BUENOS AIRES'), naviera: '', servicio: 'DIRECTO', directo: true, transbordo: '', tt: '',
     pagadero: base ? base.pagadero : 'COLLECT', contenedores: {}, localesArg: base ? base.localesArg : '', imo: '', fuel: '', puertos: '', comentarios: '',
     gastos: base ? copia(base.gastos) : gastosBase(null) };
 }
 // Precarga: el envío de esta vigencia si existe; si no, el último envío como punto de partida
+// Lleva cualquier forma de escribir el contenedor a los tipos de la base madre: 20ST, 40ST/40HQ, 40NOR
+function tipoCtnr(v) { var t = String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); return /NOR/.test(t) ? '40NOR' : /^20/.test(t) ? '20ST' : /^40/.test(t) ? '40ST/40HQ' : ''; }
+function contenedoresNorm(o) { var out = {}; Object.keys(o || {}).forEach(function (k) { var c = tipoCtnr(k); if (c && !out[c]) out[c] = o[k]; }); return out; }
 function cargarMar() {
   var u = mUltimo(), base = u, E = MR().envios;
   if (!base && E.length) base = MR().ultimos[E[0].desde];
   mPrecarga = u ? 'esta' : base ? 'ultima' : '';
   mMotivo = u && pedidosDe('mar', mVig.desde).length ? 'negociada' : '';
   if (u) mVig.hasta = u.hasta;
-  mForm = !base ? { rutas: [rutaMarVacia(null)] } : { rutas: base.rutas.map(function (r) { var x = copia(r); x.gastos = gastosBase(r.gastos); x.contenedores = x.contenedores || {}; return x; }) };
+  mForm = !base ? { rutas: [rutaMarVacia(null)] } : { rutas: base.rutas.map(function (r) { var x = copia(r); x.gastos = gastosBase(r.gastos); x.contenedores = contenedoresNorm(x.contenedores); x.servicio = x.directo ? 'DIRECTO' : 'TRASBORDO'; return x; }) };
 }
 function mErrores() {
   var e = errVig(mVig), C = MR().contenedores;
@@ -275,13 +278,12 @@ function mRutaHTML(r, i) {
       '<label>POL<select data-mr="' + i + '" data-mk="pol" class="' + (r.pol ? '' : 'bad') + '">' + opciones(L.pol, r.pol, 'Elegir…') + '</select></label>' +
       '<label>POD<select data-mr="' + i + '" data-mk="pod" class="' + (r.pod ? '' : 'bad') + '">' + opciones(L.pod, r.pod, 'Elegir…') + '</select></label>' +
       '<label>Naviera<select data-mr="' + i + '" data-mk="naviera" class="' + (r.naviera ? '' : 'bad') + '">' + opciones(L.naviera, r.naviera, 'Elegir…') + '</select></label>' +
-      '<label>Tipo de servicio<select data-mr="' + i + '" data-mk="servicio">' + opciones(L.servicio, r.servicio) + '</select></label>' +
-      '<label>Directo o transbordo<select data-mr="' + i + '" data-mk="directo"><option value="si" ' + (r.directo ? 'selected' : '') + '>Directo</option><option value="no" ' + (r.directo ? '' : 'selected') + '>Con transbordo</option></select></label>' +
+      '<label>Tipo de servicio<select data-mr="' + i + '" data-mk="directo"><option value="si" ' + (r.directo ? 'selected' : '') + '>DIRECTO</option><option value="no" ' + (r.directo ? '' : 'selected') + '>TRASBORDO</option></select></label>' +
       (r.directo ? '' : '<label>Puerto de transbordo<select data-mr="' + i + '" data-mk="transbordo" class="' + (r.transbordo ? '' : 'bad') + '">' + opciones(L.pol, r.transbordo, 'Elegir…') + '</select></label>') +
       '<label>Transit time (días)' + inp('tt', r.tt, !(n(r.tt) > 0), 'Transit time', '1') + '</label>' +
       '<label>Pagadero<select data-mr="' + i + '" data-mk="pagadero">' + opciones(L.pagadero, r.pagadero) + '</select></label>' +
     '</div>' +
-    '<div><div class="small muted" style="margin-bottom:4px">Flete en USD por contenedor. Completá solo los que cotizás, cada uno con sus días libres. Si 40ST y 40HQ valen lo mismo, cargá el mismo valor en los dos.</div>' +
+    '<div><div class="small muted" style="margin-bottom:4px">Flete en USD por contenedor. Completá solo los que cotizás, cada uno con sus días libres. 40ST/40HQ es un solo valor para los dos.</div>' +
       '<div class="tablewrap"><table><thead><tr><th>Contenedor</th><th>Valor flete USD</th><th>Días libres</th></tr></thead><tbody>' + MR().contenedores.map(function (c) {
         var x = r.contenedores[c] || {}, conFlete = n(x.flete) > 0, p = mPedidoDe(r, c);
         return '<tr class="' + (p ? 'pedido' : '') + '"><td><b>' + c + '</b>' + (p ? '<div class="hint obj">' + (p.objetivo !== '' ? 'Objetivo: USD ' + fmt(p.objetivo) + ' (flete + recargos)' : 'BIDCOM pide mejorar') + '</div>' : '') + '</td>' +
@@ -329,7 +331,7 @@ function bindMar() {
   bindVigencia('m', mVig, function () { if (mUltimo()) cargarMar(); else { mMotivo = ''; mPrecarga = mPrecarga === 'esta' ? 'ultima' : mPrecarga; } render(); });
   document.querySelectorAll('[data-mk]').forEach(function (el) {
     var r = mForm.rutas[Number(el.getAttribute('data-mr'))], k = el.getAttribute('data-mk');
-    if (el.tagName === 'SELECT') el.onchange = function () { if (k === 'directo') r.directo = el.value === 'si'; else r[k] = el.value; render(); };
+    if (el.tagName === 'SELECT') el.onchange = function () { if (k === 'directo') { r.directo = el.value === 'si'; r.servicio = r.directo ? 'DIRECTO' : 'TRASBORDO'; if (r.directo) r.transbordo = ''; } else r[k] = el.value; render(); };
     else el.oninput = function () {
       r[k] = el.value;
       if (k === 'tt') el.classList.toggle('bad', !(n(el.value) > 0));
@@ -592,11 +594,16 @@ function valorGasto(v) {
 }
 
 /* ---------- Marítimo: lectura ---------- */
-var MAPA_MAR_MODELO = [['ruta', ['RUTA']], ['pol', ['POL']], ['pod', ['POD']], ['naviera', ['NAVIERA', 'LINEA']], ['servicio', ['TIPO DE SERVICIO', 'SERVICIO']],
-  ['transbordo', ['PUERTO DE TRANSBORDO', 'PUERTO TRANSBORDO', 'TRANSBORDO']], ['tt', ['TRANSIT TIME DIAS', 'TRANSIT TIME', 'TT']], ['pagadero', ['PAGADERO']],
-  ['f20ST', ['FLETE 20ST', '20ST']], ['d20ST', ['DIAS LIBRES 20ST']], ['f40ST', ['FLETE 40ST', '40ST']], ['d40ST', ['DIAS LIBRES 40ST']],
-  ['f40HQ', ['FLETE 40HQ', '40HQ']], ['d40HQ', ['DIAS LIBRES 40HQ']], ['f40NOR', ['FLETE 40NOR', '40NOR']], ['d40NOR', ['DIAS LIBRES 40NOR']],
-  ['locales', ['LOCALES ARG USD', 'LOCALES ARG', 'LOCALES']], ['imo', ['RECARGA IMO']], ['fuel', ['FUEL ADJUST']], ['puertos', ['ADICIONAL PUERTOS INTERNOS']], ['coment', ['COMENTARIOS', 'OBSERVACIONES']]];
+function mapaMarModelo() {
+  var m = [['ruta', ['RUTA']], ['pol', ['POL']], ['pod', ['POD']], ['naviera', ['NAVIERA', 'LINEA']], ['servicio', ['TIPO DE SERVICIO', 'SERVICIO']],
+    ['transbordo', ['PUERTO DE TRANSBORDO', 'PUERTO TRANSBORDO', 'TRANSBORDO']], ['tt', ['TRANSIT TIME DIAS', 'TRANSIT TIME', 'TT']], ['pagadero', ['PAGADERO']]];
+  MR().contenedores.forEach(function (c) {
+    var extra = c === '40ST/40HQ' ? ['40ST', '40HQ'] : [];
+    m.push(['f' + c, ['FLETE ' + c, c].concat(extra.map(function (x) { return 'FLETE ' + x; }))]);
+    m.push(['d' + c, ['DIAS LIBRES ' + c].concat(extra.map(function (x) { return 'DIAS LIBRES ' + x; }))]);
+  });
+  return m.concat([['locales', ['LOCALES ARG USD', 'LOCALES ARG', 'LOCALES']], ['imo', ['RECARGA IMO']], ['fuel', ['FUEL ADJUST']], ['puertos', ['ADICIONAL PUERTOS INTERNOS']], ['coment', ['COMENTARIOS', 'OBSERVACIONES']]]);
+}
 var MAPA_MAR_ACTUAL = [['flete', ['VALOR FLETE']], ['ctnr', ['TIPO CTNR', 'TIPO DE CONTENEDOR', 'CONTENEDOR']], ['pol', ['POL']], ['pod', ['POD']], ['naviera', ['LINEA', 'NAVIERA']],
   ['servicio', ['TIPO DE SERVICIO']], ['transbordo', ['TRANSBORDO']], ['tt', ['TT', 'TRANSIT TIME']], ['desde', ['VALIDEZ QUINCENA DESDE', 'VIGENCIA DESDE', 'VALIDEZ DESDE']],
   ['hasta', ['VALIDEZ QUINCENA HASTA', 'VIGENCIA HASTA', 'VALIDEZ HASTA']], ['dias', ['DIAS LIBRES']], ['pagadero', ['PAGADERO']], ['locales', ['LOCALES ARG', 'LOCALES']],
@@ -607,16 +614,17 @@ function leerExcelMar(wb) {
   var L = MR().listas, avisos = [], rutas = [], hojaF = null, tipo = '';
   wb.SheetNames.forEach(function (n) {
     if (hojaF) return;
-    var g = grilla(wb.Sheets[n]), e1 = encabezados(g, MAPA_MAR_MODELO), e2 = encabezados(g, MAPA_MAR_ACTUAL);
+    var g = grilla(wb.Sheets[n]), e1 = encabezados(g, mapaMarModelo()), e2 = encabezados(g, MAPA_MAR_ACTUAL);
     if (e2 && e2.cols.flete !== undefined && e2.cols.ctnr !== undefined) { hojaF = { g: g, e: e2, n: n }; tipo = 'actual'; }
-    else if (e1 && e1.cols.pol !== undefined && ['f20ST', 'f40ST', 'f40HQ', 'f40NOR'].some(function (k) { return e1.cols[k] !== undefined; })) { hojaF = { g: g, e: e1, n: n }; tipo = 'modelo'; }
+    else if (e1 && e1.cols.pol !== undefined && MR().contenedores.some(function (c) { return e1.cols['f' + c] !== undefined; })) { hojaF = { g: g, e: e1, n: n }; tipo = 'modelo'; }
   });
   if (!hojaF) return { error: 'No encontré la hoja de fletes. Usá el modelo de BIDCOM o tu Excel de siempre (con columnas POL, Valor Flete y Tipo Ctnr).' };
   var g = hojaF.g, C = hojaF.e.cols, v = function (r, k) { return C[k] === undefined ? '' : r[C[k]]; }, vig = vigenciaDeLibro(wb);
   var base = function (r) {
-    var tb = v(r, 'transbordo');
+    var tb = v(r, 'transbordo'), sv = normT(v(r, 'servicio'));
+    var directo = /TRAS|TRANS|T\/S/.test(sv) ? false : /DIRECT/.test(sv) ? true : directoDe(tb);
     return { pol: deLista(L.pol, v(r, 'pol')), pod: deLista(L.pod, v(r, 'pod')) || ((L.pod || [])[0] || ''), naviera: deLista(L.naviera, v(r, 'naviera')),
-      servicio: /SPOT/.test(normT(v(r, 'servicio'))) ? 'Spot' : 'Regular', directo: directoDe(tb), transbordo: directoDe(tb) ? '' : deLista(L.pol, tb),
+      servicio: directo ? 'DIRECTO' : 'TRASBORDO', directo: directo, transbordo: directo || directoDe(tb) ? '' : deLista(L.pol, String(tb).replace(/^VIA\s+/i, '')),
       tt: numX(v(r, 'tt')), pagadero: /PREPAID/.test(normT(v(r, 'pagadero'))) ? 'PREPAID' : 'COLLECT', contenedores: {},
       localesArg: numX(v(r, 'locales')), imo: numX(v(r, 'imo')), fuel: numX(v(r, 'fuel')), puertos: numX(v(r, 'puertos')), comentarios: String(v(r, 'coment') || '').trim(), gastos: [] };
   };
@@ -655,8 +663,7 @@ function leerExcelMar(wb) {
       var k = [normT(v(r2, 'pol')), normT(v(r2, 'pod')), normT(v(r2, 'naviera')), normT(v(r2, 'tt'))].join('|');
       var ru2 = porClave[k]; if (!ru2) { ru2 = porClave[k] = base(r2); rutas.push(ru2); }
       vig.desde = vig.desde || fechaCelda(v(r2, 'desde')); vig.hasta = vig.hasta || fechaCelda(v(r2, 'hasta'));
-      var cs = String(v(r2, 'ctnr')).toUpperCase().split(/[\/,;]| Y /).map(function (c) { c = c.replace(/[^A-Z0-9]/g, ''); return c === '40HC' ? '40HQ' : c === '20DV' || c === '20' ? '20ST' : c === '40DV' ? '40ST' : c; });
-      var ok = cs.filter(function (c) { return MR().contenedores.indexOf(c) >= 0; });
+      var c2 = tipoCtnr(v(r2, 'ctnr')), ok = c2 && MR().contenedores.indexOf(c2) >= 0 ? [c2] : [];
       if (!ok.length) avisos.push('Fila ' + (i2 + 1) + ': contenedor "' + v(r2, 'ctnr') + '" no reconocido.');
       ok.forEach(function (c) { ru2.contenedores[c] = { flete: f, dias: numX(v(r2, 'dias')) }; });
     }
@@ -791,8 +798,8 @@ function specMar(ejemplo) {
   var L = MR().listas, conts = MR().contenedores, hoy = D.hoy, N = 12, F0 = 6, acept = MR().localesAceptado;
   var cols = [{ h: 'Ruta', w: 6, g: 'ruta', tipo: 'auto', centro: true, nota: 'Número de ruta. Es el que une esta fila con su columna en Gastos en origen.' },
     { h: 'POL', w: 15, g: 'ruta', lista: 'POL', nota: 'Puerto de carga. Elegí de la lista.' }, { h: 'POD', w: 15, g: 'ruta', lista: 'POD' },
-    { h: 'Naviera', w: 13, g: 'ruta', lista: 'Naviera', nota: 'Una naviera por fila.' }, { h: 'Tipo de servicio', w: 11, g: 'ruta', lista: 'Servicio' },
-    { h: 'Puerto de transbordo', w: 14, g: 'ruta', lista: 'POL', tipo: 'opt', nota: 'Vacío = servicio directo.' }, { h: 'Transit time (días)', w: 9, g: 'ruta', num: true },
+    { h: 'Naviera', w: 13, g: 'ruta', lista: 'Naviera', nota: 'Una naviera por fila.' }, { h: 'Tipo de servicio', w: 12, g: 'ruta', lista: 'Servicio', nota: 'DIRECTO o TRASBORDO.' },
+    { h: 'Puerto de transbordo', w: 14, g: 'ruta', lista: 'POL', tipo: 'opt', nota: 'Solo si es TRASBORDO: el puerto donde transborda.' }, { h: 'Transit time (días)', w: 9, g: 'ruta', num: true },
     { h: 'Pagadero', w: 11, g: 'ruta', lista: 'Pagadero' }];
   conts.forEach(function (c, i) {
     cols.push({ h: 'Flete ' + c, w: 9, g: i % 2 ? 'c2' : 'c1', banda: c, num: true, fmt: '#,##0', tipo: 'opt', nota: 'USD por contenedor. Vacío si no cotizás ' + c + '.' });
@@ -802,8 +809,8 @@ function specMar(ejemplo) {
     { h: 'Recarga IMO USD', w: 9, g: 'rec', num: true, tipo: 'opt' }, { h: 'Fuel adjust USD', w: 9, g: 'rec', num: true, tipo: 'opt' },
     { h: 'Adicional puertos internos USD', w: 11, g: 'rec', num: true, tipo: 'opt' }, { h: 'Comentarios', w: 24, g: 'obs', tipo: 'opt' }, { h: 'Control', w: 30, g: 'ctrl', control: true }]);
   var ej = ejemplo ? [
-    [1, 'Ningbo', 'BUENOS AIRES', 'MSC', 'Regular', '', 38, 'COLLECT', 2700, 14, 3700, 14, 3700, 14, '', '', 800, '', 50, '', 'Ejemplo ficticio'],
-    [2, 'Shanghai', 'BUENOS AIRES', 'MAERSK', 'Regular', 'Singapore', 42, 'COLLECT', 2650, 21, 3600, 21, 3650, 21, '', '', 800, 35, 50, '', 'Ejemplo ficticio']] : [];
+    [1, 'Ningbo', 'BUENOS AIRES', 'MSC', 'DIRECTO', '', 38, 'COLLECT', 2700, 14, 3700, 14, '', '', 800, '', 50, '', 'Ejemplo ficticio'],
+    [2, 'Shanghai', 'BUENOS AIRES', 'MAERSK', 'TRASBORDO', 'Singapore', 42, 'COLLECT', 2650, 21, 3650, 21, 3900, 21, 800, 35, 50, '', 'Ejemplo ficticio']] : [];
   var filas = []; for (var i = 0; i < N; i++) filas.push(ej[i] || [i + 1]);
   filas = filas.map(function (f) { var x = f.slice(); while (x.length < cols.length) x.push(''); return x; });
   var conceptos = (L.conceptos || []).concat(['', '', '']);
@@ -818,9 +825,10 @@ function specMar(ejemplo) {
     var k = r - F0 + 1, gc = letraXL(2 + k), rr = function (h) { return C(h) + r; };
     var fl = conts.map(function (c) { return rr('Flete ' + c); }), di = conts.map(function (c) { return rr('Días libres ' + c); });
     return 'IF(' + rr('POL') + '="","",IF(OR(' + ['POD', 'Naviera', 'Tipo de servicio', 'Transit time (días)', 'Pagadero'].map(function (h) { return rr(h) + '=""'; }).join(',') + '),"Falta: POD, naviera, servicio, TT o pagadero",' +
+      'IF(AND(ISNUMBER(SEARCH("TRAS",' + rr('Tipo de servicio') + ')),' + rr('Puerto de transbordo') + '=""),"Falta: puerto de transbordo",' +
       'IF(COUNT(' + fl.join(',') + ')=0,"Falta: flete de algún contenedor",IF(OR(' + fl.map(function (f, i) { return 'AND(' + f + '<>"",' + di[i] + '="")'; }).join(',') + '),"Falta: días libres",' +
       'IF(' + rr('Locales ARG USD') + '="","Falta: Locales ARG",IF(COUNT(\'Gastos en origen\'!' + gc + g0 + ':' + gc + g1 + ')=0,"Falta: gastos en origen (columna Ruta ' + k + ')",' +
-      'IF(' + rr('Locales ARG USD') + '>' + acept + ',"Revisar: Locales ARG sobre USD ' + acept + '","Completa")))))))';
+      'IF(' + rr('Locales ARG USD') + '>' + acept + ',"Revisar: Locales ARG sobre USD ' + acept + '","Completa"))))))))';
   };
   var controlGastos = function (j) { var col = letraXL(j), rf = F0 + (j - 3);
     return 'IF(AND(Fletes!' + C('POL') + rf + '="",COUNT(' + col + g0 + ':' + col + g1 + ')=0),"",IF(Fletes!' + C('POL') + rf + '="","Revisar: ruta sin flete",IF(COUNT(' + col + g0 + ':' + col + g1 + ')=0,"Falta","Completa")))'; };
@@ -828,11 +836,11 @@ function specMar(ejemplo) {
     instrucciones: { titulo: 'Cotización marítima BIDCOM', subtitulo: ejemplo ? 'EJEMPLO COMPLETO (datos ficticios): así queda bien cargado. Para cotizar, usá el MODELO.' : 'MODELO para completar. Cuando termines, subilo en tu link de BIDCOM.',
       importante: ['Gastos en origen: completalos en la solapa "Gastos en origen", concepto por concepto y por ruta. No envíes un total sin desglose: BIDCOM los usa como base para una negociación específica de gastos en origen.',
         'Locales ARG: el valor aceptado por BIDCOM es USD ' + acept + '. Recarga IMO, Fuel adjust y Adicional puertos internos van cada uno en su columna, en USD.',
-        'Cotizá cada contenedor con su valor y sus días libres. Si 40ST y 40HQ valen lo mismo, cargá el mismo valor en los dos.',
+        'Contenedores: 20ST, 40ST/40HQ (un solo valor para los dos) y 40NOR, cada uno con su valor y sus días libres.',
         'Una naviera por ruta. Si un recargo no está incluido, indicalo en su columna o en Comentarios, no dentro del nombre de la naviera.'],
       pasos: ['Arriba de la solapa Fletes completá Vigencia desde y Vigencia hasta. Puede ser 1 semana, 15 días o 1 mes.',
         'Fletes: una fila por ruta y naviera. La columna Ruta ya trae el número (1, 2, 3…): es el que une cada ruta con su columna de gastos.',
-        'Elegí POL, POD, naviera, servicio y pagadero de las listas (flechita en la celda). Puerto de transbordo vacío = directo.',
+        'Elegí POL, POD, naviera, tipo de servicio (DIRECTO o TRASBORDO) y pagadero de las listas (flechita en la celda). Si es TRASBORDO, completá el puerto de transbordo.',
         'Cargá el flete de cada contenedor que cotizás, con sus días libres. Dejá vacío lo que no cotizás.',
         'Gastos en origen: un importe por concepto en la columna de cada ruta (Ruta 1 = fila 1 de Fletes), con su unidad de cobro. Si cobrás otro concepto, escribilo en una fila amarilla vacía.',
         'Revisá la columna Control de Fletes y la fila Control de Gastos en origen: tienen que quedar en verde.'],
@@ -842,7 +850,7 @@ function specMar(ejemplo) {
         vigencia: ejemplo ? [hoy, sumarDias(hoy, 14)] : ['', ''], cols: cols, filas: filas, congelar: 2, controlFila: controlFletes, color: 'ruta' },
       { nombre: 'Gastos en origen', titulo: 'Gastos en origen · un concepto por fila, una columna por ruta (USD)', ayuda: 'IMPORTANTE: es la base de la negociación de gastos en origen. Un importe por concepto en la columna de cada ruta. Dejá vacío lo que no aplica. Nada de totales sin desglose.',
         cols: gcols, filas: gfilas, congelar: 2, gasto: true, controlCol: controlGastos, desdeCol: 3, color: 'gasto' }],
-    listas: { POL: L.pol || [], POD: L.pod || [], Naviera: L.naviera || [], Servicio: L.servicio || ['Regular', 'Spot'], Pagadero: L.pagadero || ['COLLECT', 'PREPAID'], Unidades: L.unidades || [] } };
+    listas: { POL: L.pol || [], POD: L.pod || [], Naviera: L.naviera || [], Servicio: ['DIRECTO', 'TRASBORDO'], Pagadero: L.pagadero || ['COLLECT', 'PREPAID'], Unidades: L.unidades || [] } };
 }
 function specAir(ejemplo) {
   var R = A().rutas, hoy = D.hoy, F0 = 6;
