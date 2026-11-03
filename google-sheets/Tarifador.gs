@@ -118,6 +118,7 @@ var Tarifador = (function () {
       .addItem('3. Verificar la base madre', 'tarifador_verificarBaseMadre')
       .addItem('4. Activar aviso diario de vencimientos', 'tarifador_activarAvisos')
       .addSeparator()
+      .addItem('Panel de tarifas (KPIs, agentes, rutas)', 'tarifador_panel')
       .addItem('Enviar decisiones del team (aprobar / pedir mejora)', 'tarifador_enviarDecisiones')
       .addItem('Recalcular comparación', 'tarifador_recalcular')
       .addItem('Revisar vencimientos ahora', 'tarifador_avisarVencimientos')
@@ -725,6 +726,99 @@ var Tarifador = (function () {
     }).map(function (y) { return num(y[K.total]); }));
   }
 
+
+  /* ------------------------------------------------------------------ */
+  /* Panel de tarifas: un solo lugar con KPIs, mejores tarifas, ranking   */
+  /* de agentes, evolución y pendientes. Lee la base madre y el Tarifador. */
+  /* ------------------------------------------------------------------ */
+  function abrirPanel() {
+    var html = HtmlService.createHtmlOutputFromFile('TarifadorPanel').setWidth(1320).setHeight(860);
+    SpreadsheetApp.getUi().showModalDialog(html, 'Panel de tarifas BIDCOM');
+  }
+  // Números de la planilla: pueden venir como número o como texto "USD3.395,00"
+  function numBase(v) {
+    if (typeof v === 'number') return v;
+    var t = String(v === null || v === undefined ? '' : v).replace(/[^0-9,.\-]/g, '');
+    if (!t) return NaN;
+    if (t.indexOf(',') >= 0) t = t.replace(/\./g, '').replace(',', '.');
+    else if (/^-?\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
+    var n = Number(t); return isNaN(n) ? NaN : n;
+  }
+  var FILAS_PANEL = 6000;
+  function leerBasePanel(cfg, nombre, tipo, mapaDef, desdeMin, aereo) {
+    if (!nombre) return { filas: [] };
+    try {
+      var hoja = abrirDestino({ url: cfg.baseUrl }, nombre), enc = mapearEncabezados(hoja, mapaDef);
+      if (!enc) return { filas: [], error: 'No encontré los encabezados en "' + nombre + '".' };
+      var M = enc.mapa, ultima = hoja.getLastRow(), inicio = Math.max(enc.fila + 1, ultima - FILAS_PANEL + 1);
+      if (ultima < inicio) return { filas: [] };
+      var datos = hoja.getRange(inicio, 1, ultima - inicio + 1, hoja.getLastColumn()).getValues(), filas = [];
+      datos.forEach(function (r, i) {
+        var v = function (c) { return M[c] ? r[M[c] - 1] : ''; };
+        var desde = aereo ? v('vigDesde') : v('desde'), hasta = aereo ? v('vigencia') : v('hasta');
+        if (!(desde instanceof Date) || desde.getTime() < desdeMin) return;
+        var precio, extra = '';
+        if (aereo) {
+          precio = numBase(v('allin'));
+          if (!(precio > 0)) { var base = numBase(v('r100')) || numBase(v('r300')) || numBase(v('r500')); precio = base > 0 ? base + (numBase(v('fuel')) || 0) : NaN; }
+          extra = numBase(v('destinoUsd'));
+        } else {
+          var flete = numBase(v('flete'));
+          precio = flete > 0 ? flete + (numBase(v('imo')) || 0) + (numBase(v('fuel')) || 0) + (numBase(v('puertos')) || 0) : NaN;
+          extra = numBase(v('locales'));
+        }
+        if (!(precio > 0)) return;
+        var agente = String(aereo ? v('agente') : v('ffww')).trim();
+        if (!agente) return;
+        filas.push([tipo, agente, String(aereo ? v('origen') : v('pol')).trim(), String(aereo ? v('destino') : v('pod')).trim(),
+          String(aereo ? v('aerolinea') : v('linea')).trim(), aereo ? '' : tipoCtnr(v('ctnr')), fecha(desde), hasta instanceof Date ? fecha(hasta) : '',
+          Math.round(precio * 100) / 100, isNaN(extra) ? '' : extra, inicio + i]);
+      });
+      return { filas: filas };
+    } catch (e) { return { filas: [], error: nombre + ': ' + (e && e.message || e) }; }
+  }
+  // El panel solo lo usan editores de la planilla. Como el formulario de agentes vive en el mismo proyecto,
+  // se corta cualquier llamada que no venga de un editor identificado (por ejemplo, desde el link de un agente).
+  function exigirEditor() {
+    var mail = String(Session.getActiveUser().getEmail() || '').toLowerCase();
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var editores = ss.getEditors().map(function (u) { return String(u.getEmail() || '').toLowerCase(); });
+    try { editores.push(String(ss.getOwner().getEmail() || '').toLowerCase()); } catch (e) { }
+    if (!mail || editores.indexOf(mail) < 0) throw new Error('Sin permiso: el panel es solo para el team de BIDCOM.');
+  }
+  function datosPanel() {
+    exigirEditor();
+    var cfg = leerAjustes(), hoy = new Date(), desdeMin = hoy.getTime() - 400 * 86400000, errores = [];
+    var junta = function (lista) { var out = []; lista.forEach(function (x) { if (x.error) errores.push(x.error); out = out.concat(x.filas); }); return out; };
+    var mar = junta([leerBasePanel(cfg, cfg.marIni, 'Inicial', MAPA_MARITIMO, desdeMin, false), leerBasePanel(cfg, cfg.marNeg, 'Negociada', MAPA_MARITIMO, desdeMin, false)]);
+    var air = junta([leerBasePanel(cfg, cfg.airIni, 'Inicial', MAPA_AEREO, desdeMin, true), leerBasePanel(cfg, cfg.airNeg, 'Negociada', MAPA_AEREO, desdeMin, true)]);
+    var pend = [], estados = {};
+    try {
+      var sh = hojaCotiz();
+      valoresCotiz(sh).forEach(function (x, i) {
+        if (!x[K.id]) return;
+        if (x[K.vigente] === 'SI') estados[x[K.estado]] = (estados[x[K.estado]] || 0) + 1;
+        if (x[K.vigente] !== 'SI' || (x[K.estado] !== ESTADOS.REVISAR && x[K.estado] !== ESTADOS.RESPUESTA)) return;
+        pend.push([i + 2, String(x[K.id]), x[K.recibido] instanceof Date ? fechaHora(x[K.recibido]) : String(x[K.recibido]), x[K.modo] === MODO.AIR ? 'air' : 'mar',
+          String(x[K.ffww]), String(x[K.origen]), String(x[K.destino]), String(x[K.carrier]), String(x[K.ctnr] || ''), numBase(x[K.total]) || '',
+          numBase(x[K.vsMenor]), String(x[K.semaforo] || ''), String(x[K.estado]), String(x[K.tipo] || ''), String(x[K.decision] || '')]);
+      });
+    } catch (e) { errores.push(String(e && e.message || e)); }
+    return {
+      hoy: fecha(hoy), mar: mar, air: air, pend: pend, estados: estados, errores: errores,
+      agentes: cfg.agentes.filter(function (a) { return a.activo; }).map(function (a) { return a.nombre; }),
+      hojas: { marIni: cfg.marIni, marNeg: cfg.marNeg, airIni: cfg.airIni, airNeg: cfg.airNeg, cotiz: HOJA.COTIZ }, diasAviso: cfg.diasAviso
+    };
+  }
+  function irAFila(nombre, fila) {
+    exigirEditor();
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var hoja = ss.getSheetByName(nombre);
+    if (!hoja) return false;
+    ss.setActiveSheet(hoja); hoja.setActiveRange(hoja.getRange(fila, 1, 1, Math.max(1, hoja.getLastColumn())));
+    return true;
+  }
+
   /* ------------------------------------------------------------------ */
   /* Mails                                                               */
   /* ------------------------------------------------------------------ */
@@ -1178,6 +1272,10 @@ var Tarifador = (function () {
   }
 
   return {
+    abrirPanel: abrirPanel,
+    datosPanel: datosPanel,
+    irAFila: irAFila,
+    numBase: numBase,
     tipoCtnr: tipoCtnr,
     menu: menu,
     prepararHojas: prepararHojas,
@@ -1295,3 +1393,6 @@ function tarifador_enviarDecisiones() { Tarifador.enviarDecisiones(); }
 function tarifador_recalcular() { Tarifador.recalcularMenu(); }
 function tarifador_avisarVencimientos() { Tarifador.avisarVencimientosMenu(); }
 function tarifador_irACotizaciones() { Tarifador.irACotizaciones(); }
+function tarifador_panel() { Tarifador.abrirPanel(); }
+function tarifadorDatosPanel() { return Tarifador.datosPanel(); }
+function tarifadorIrAFila(nombre, fila) { return Tarifador.irAFila(nombre, fila); }
