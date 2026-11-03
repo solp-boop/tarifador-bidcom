@@ -58,8 +58,8 @@ var AJ = [
   ['marNeg', 'Pestaña tarifas negociadas', 'Cotizaciones Maritimos Negociado', 'La tarifa que el agente manda después de un pedido de mejora.'],
   ['locales', 'Locales ARG aceptado (USD)', 800, 'Se le muestra al agente. Si cotiza más, se marca en el aviso al team.'],
   ['AÉREO'],
-  ['airIni', 'Pestaña tarifas iniciales (aéreo)', '', 'Nombre exacto de la pestaña de la base madre. Vacío = el aéreo queda solo en TARIFADOR Cotizaciones.'],
-  ['airNeg', 'Pestaña tarifas negociadas (aéreo)', '', 'Vacío = la misma pestaña.'],
+  ['airIni', 'Pestaña tarifas iniciales (aéreo)', 'Cotizaciones Aereos SIN NEGOCIAR', 'Nombre exacto de la pestaña de la base madre. Vacío = el aéreo queda solo en TARIFADOR Cotizaciones.'],
+  ['airNeg', 'Pestaña tarifas negociadas (aéreo)', 'Cotizaciones Aereos Negociado', 'La tarifa aérea que el agente manda después de un pedido de mejora.'],
   ['imoTexto', 'IMO a pedido se escribe como', 'Upon RQST', ''],
   ['peso', 'Peso de referencia (kg)', 500, 'Para calcular el all-in USD/kg. No cambiarlo seguido: deja de ser comparable.']
 ];
@@ -944,7 +944,7 @@ function pegarEnvioEnBase(cfg, modo, agente, lineas, desde, hasta, version, ahor
     if (!cfg.airIni) return;
     pegarEnBaseMadre(aPegar.map(function (l) {
       var r = l.r;
-      return { semana: semanaISO(desde), agente: agente.nombre, version: version, recibido: ahora, tipo: l.tipo, motivo: l.correccion ? MOTIVOS.correccion : l.motivo,
+      return { semana: semanaISO(desde), agente: agente.nombre, contacto: agente.contacto || agente.nombre, version: version, recibido: ahora, tipo: l.tipo, motivo: l.correccion ? MOTIVOS.correccion : l.motivo,
         origen: r.origen, destino: r.destino, aerolinea: r.aerolinea, transito: num(r.transito), minimo: num(r.minimo), tarifas: r.tarifas, fuel: num(r.fuel),
         imo: r.imoPedido ? '' : num(r.imo), imoPedido: !!r.imoPedido, destino_usd: num(r.destino_usd), vigencia: hasta, vigDesde: desde, obs: r.obs || '',
         gastos: l.g.map(function (c) { return { importe: num(c.importe), unidad: c.unidad, minimo: num(c.minimo), pedido: !!c.pedido }; }) };
@@ -1030,7 +1030,9 @@ function pegarMaritimo(filas, cfg) {
 /* ---------- Aéreo ---------- */
 var MAPA_AEREO = [
   ['semana', ['WEEK ID', 'WEEK', 'SEMANA', 'WEEK ID SEMANA']],
-  ['agente', ['AGENT', 'AGENTE', 'FFWW', 'FORWARDER']],
+  ['transporte', ['TIPO DE TRANSPORTE', 'TRANSPORTE']],
+  ['contacto', ['AGENTE', 'CONTACTO']],
+  ['agente', ['FFWW', 'AGENT', 'FORWARDER']],
   ['origen', ['ORIGIN AIRPORT', 'ORIGEN', 'AEROPUERTO ORIGEN', 'AEROPUERTO DE ORIGEN', 'ORIGIN']],
   ['destino', ['DESTINATION AIRPORT', 'DESTINO', 'AEROPUERTO DESTINO', 'AEROPUERTO DE DESTINO', 'DESTINATION']],
   ['aerolinea', ['AEROLINEA HABITUAL', 'AEROLINEA', 'AIRLINE', 'CARRIER']],
@@ -1054,7 +1056,7 @@ var MAPA_AEREO = [
   ['recibido', ['FECHA RECEPCION', 'FECHA DE RECEPCION', 'RECIBIDO', 'FECHA DE CARGA']],
   ['tipo', ['TIPO DE TARIFA', 'TIPO TARIFA', 'TIPO', 'INICIAL / NEGOCIADA', 'INICIAL O NEGOCIADA', 'ESTADO DE LA TARIFA']]
 ];
-var NOMBRE_CAMPO = { semana: 'Semana (de la vigencia desde)', agente: 'Agente', origen: 'Origen', destino: 'Destino', aerolinea: 'Aerolínea', transito: 'Tránsito', moneda: 'Moneda',
+var NOMBRE_CAMPO = { transporte: 'Tipo de transporte (Aereo)', contacto: 'Contacto del agente', semana: 'Semana (de la vigencia desde)', agente: 'Empresa del agente', origen: 'Origen', destino: 'Destino', aerolinea: 'Aerolínea', transito: 'Tránsito', moneda: 'Moneda',
   minimo: 'Mínimo', r45: '45 kg', r100: '100 kg', r300: '300 kg', r500: '500 kg', r1000: '1000 kg', fuel: 'Fuel', imo: 'IMO', origenUsd: 'Gastos en origen (total)',
   destinoUsd: 'Gastos destino', vigDesde: 'Vigencia desde', vigencia: 'Vigencia hasta', allin: 'All-in USD/kg', obs: 'Observaciones', version: 'Versión', recibido: 'Fecha de recepción', tipo: 'Tipo de tarifa (Inicial / Negociada)' };
 
@@ -1083,6 +1085,7 @@ function valorDe(campo, f, calc, cfg) {
     case 'origenUsd': return calc.origen; case 'destinoUsd': return f.destino_usd; case 'vigDesde': return f.vigDesde; case 'vigencia': return f.vigencia;
     case 'allin': return calc.allin; case 'obs': return f.obs; case 'version': return f.version; case 'recibido': return f.recibido;
     case 'tipo': return f.tipo || TIPOS.INICIAL;
+    case 'transporte': return 'Aereo'; case 'contacto': return f.contacto || f.agente;
   }
   return '';
 }
