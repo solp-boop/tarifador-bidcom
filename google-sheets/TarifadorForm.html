@@ -13,8 +13,12 @@
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 Arial, Helvetica, sans-serif; }
   .wrap { max-width: 1100px; margin: 0 auto; padding: 20px 16px 60px; display: flex; flex-direction: column; gap: 16px; }
-  header.top { background: var(--surface); border-bottom: 1px solid var(--line); }
-  header.top .in { max-width: 1100px; margin: 0 auto; padding: 12px 16px; display: flex; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; align-items: baseline; }
+  header.top { background: #0000FF; color: #fff; }
+  header.top .in { max-width: 1100px; margin: 0 auto; padding: 12px 16px; display: flex; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; align-items: center; }
+  header.top .marca { display: flex; align-items: center; gap: 12px; margin: 0; font-size: 18px; font-weight: 600; color: #fff; }
+  header.top .marca img { height: 26px; width: auto; display: block; }
+  header.top .marca .sep { width: 1px; height: 22px; background: rgba(255,255,255,.45); }
+  header.top .muted, header.top .tema { color: rgba(255,255,255,.9); }
   h1 { font-size: 20px; margin: 0; } h2 { font-size: 16px; margin: 0 0 10px; } h3 { font-size: 14px; margin: 0; }
   .muted { color: var(--muted); } .small { font-size: 12.5px; }
   .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
@@ -76,7 +80,7 @@
 </style>
 </head>
 <body>
-<header class="top"><div class="in"><h1>Tarifas BIDCOM</h1><span style="display:flex;gap:16px;align-items:center;flex-wrap:wrap"><span class="muted" id="who"></span>
+<header class="top"><div class="in"><h1 class="marca"><img src="https://static.bidcom.com.ar/images/vector/bidcom-logo.svg" alt="BIDCOM" width="132" height="30"><span class="sep" aria-hidden="true"></span><span>Tarifas</span></h1><span style="display:flex;gap:16px;align-items:center;flex-wrap:wrap"><span class="muted" id="who"></span>
   <label class="tema" for="tema" style="flex-direction:row">Tema <select id="tema"><option value="auto">Automático</option><option value="light">Claro</option><option value="dark">Oscuro</option></select></label></span></div></header>
 <div class="wrap"><div class="modos" id="modos" role="tablist" aria-label="Tipo de transporte"></div><div id="app" style="display:flex;flex-direction:column;gap:16px"></div></div>
 

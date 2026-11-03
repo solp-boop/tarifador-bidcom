@@ -926,6 +926,11 @@ var Tarifador = (function () {
     });
     return mejor.n >= 3 ? mejor : null;
   }
+  // La hoja puede estar llena hasta su última fila: se agregan filas al final antes de pegar
+  function asegurarFila(hoja, fila) {
+    var max = hoja.getMaxRows();
+    if (fila > max) hoja.insertRowsAfter(max, fila - max + 200);
+  }
   function copiarFormulasDeArriba(hoja, fila, arriba, ocupadas, propias) {
     arriba.forEach(function (fx, j) {
       if (fx && !ocupadas[j] && !propias[j]) { hoja.getRange(fila - 1, j + 1).copyTo(hoja.getRange(fila, j + 1), SpreadsheetApp.CopyPasteType.PASTE_FORMULA, false); propias[j] = fx; }
@@ -1017,7 +1022,7 @@ var Tarifador = (function () {
           }
         }
         var esNueva = !fila;
-        if (esNueva) { fila = ultima + 1; ultima = fila; if (fila - 1 > enc.fila) hoja.getRange(fila - 1, 1, 1, ancho).copyTo(hoja.getRange(fila, 1, 1, ancho), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false); }
+        if (esNueva) { fila = ultima + 1; ultima = fila; asegurarFila(hoja, fila); if (fila - 1 > enc.fila) hoja.getRange(fila - 1, 1, 1, ancho).copyTo(hoja.getRange(fila, 1, 1, ancho), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false); }
         var idx = fila - inicio, arriba = idx > 0 ? (formulas[idx - 1] || []) : [], propias = (formulas[idx] || []).slice();
         datos[idx] = datos[idx] || []; formulas[idx] = formulas[idx] || [];
         var ocupadas = {};
@@ -1130,7 +1135,7 @@ var Tarifador = (function () {
         else if (f.tipo === TIPOS.NEGOCIADA && !mismaPestanaSinTipo) fila = candidatas[candidatas.length - 1] || 0;
       }
       var esNueva = !fila;
-      if (esNueva) { fila = ultima + 1; ultima = fila; if (fila - 1 > enc.fila) hoja.getRange(fila - 1, 1, 1, ancho).copyTo(hoja.getRange(fila, 1, 1, ancho), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false); }
+      if (esNueva) { fila = ultima + 1; ultima = fila; asegurarFila(hoja, fila); if (fila - 1 > enc.fila) hoja.getRange(fila - 1, 1, 1, ancho).copyTo(hoja.getRange(fila, 1, 1, ancho), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false); }
       var idx = fila - inicio;
       datos[idx] = datos[idx] || []; formulas[idx] = formulas[idx] || [];
       var propias = formulas[idx].slice(), arriba = idx > 0 ? (formulas[idx - 1] || []) : [], ocupadas = {};
