@@ -1,0 +1,1056 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<style>
+  :root { --bg:#f4f6f8; --surface:#fff; --sunken:#eef1f4; --line:#d9dfe5; --ink:#15212e; --muted:#5b6876; --accent:#0b5f8a; --accent-soft:#e2eef5;
+          --ok:#1d7a46; --ok-soft:#e1f2e8; --warn:#9a6b00; --warn-soft:#fbf0d2; --bad:#b3261e; --bad-soft:#f9dedc; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#0f151c; --surface:#16202a; --sunken:#1c2833; --line:#2b3946; --ink:#e5ebf0; --muted:#98a6b3; --accent:#5fb4e0; --accent-soft:#15344a;
+    --ok:#5cc98a; --ok-soft:#133524; --warn:#e2b54a; --warn-soft:#3a2f10; --bad:#f28b82; --bad-soft:#3f1a18; color-scheme: dark; } }
+  :root[data-theme="dark"] { --bg:#0f151c; --surface:#16202a; --sunken:#1c2833; --line:#2b3946; --ink:#e5ebf0; --muted:#98a6b3; --accent:#5fb4e0; --accent-soft:#15344a;
+    --ok:#5cc98a; --ok-soft:#133524; --warn:#e2b54a; --warn-soft:#3a2f10; --bad:#f28b82; --bad-soft:#3f1a18; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 Arial, Helvetica, sans-serif; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 20px 16px 60px; display: flex; flex-direction: column; gap: 16px; }
+  header.top { background: var(--surface); border-bottom: 1px solid var(--line); }
+  header.top .in { max-width: 1100px; margin: 0 auto; padding: 12px 16px; display: flex; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; align-items: baseline; }
+  h1 { font-size: 20px; margin: 0; } h2 { font-size: 16px; margin: 0 0 10px; } h3 { font-size: 14px; margin: 0; }
+  .muted { color: var(--muted); } .small { font-size: 12.5px; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+  .alert { border-radius: 8px; padding: 12px 14px; border: 1px solid; }
+  .alert.warn { background: var(--warn-soft); border-color: var(--warn); } .alert.bad { background: var(--bad-soft); border-color: var(--bad); } .alert.ok { background: var(--ok-soft); border-color: var(--ok); }
+  .alert.info { background: var(--accent-soft); border-color: var(--accent); }
+  .alert ul, ul.notes { margin: 6px 0 0; padding-left: 18px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
+  input, select { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; width: 100%; min-width: 0; }
+  input.bad, select.bad { border-color: var(--bad); background: var(--bad-soft); }
+  input[type=checkbox], input[type=radio] { width: auto; flex: none; margin-top: 3px; }
+  .route { border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+  .route.pedido { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .route-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+  .allin { font-size: 13px; } .allin b { font-variant-numeric: tabular-nums; }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .tab, .chip { font: inherit; font-size: 13px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink); cursor: pointer; }
+  .tab[aria-pressed=true], .chip[aria-pressed=true] { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  .tab.missing { border-color: var(--bad); }
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; } th, td { padding: 7px 9px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  th { background: var(--sunken); font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); white-space: nowrap; }
+  td input, td select { padding: 5px 7px; }
+  tr.pedido td { background: var(--accent-soft); }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 16px; align-items: start; }
+  aside { position: sticky; top: 12px; }
+  @media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } aside { position: static; } }
+  .btn { font: inherit; font-weight: 700; border-radius: 6px; padding: 10px 16px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); width: 100%; }
+  .btn:disabled { opacity: .55; cursor: wait; }
+  .btn:focus-visible, input:focus-visible, select:focus-visible, .tab:focus-visible, .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .check li { margin-bottom: 4px; } .done { color: var(--ok); font-weight: 700; }
+  .origin { border-color: var(--warn); }
+  .modos { display: inline-flex; gap: 4px; padding: 4px; background: var(--sunken); border: 1px solid var(--line); border-radius: 10px; align-self: flex-start; }
+  .modos button { font: inherit; font-weight: 700; font-size: 15px; border: 0; border-radius: 7px; padding: 9px 22px; background: none; color: var(--muted); cursor: pointer; }
+  .modos button[aria-selected=true] { background: var(--surface); color: var(--accent); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+  .modos .punto { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-left: 6px; vertical-align: middle; }
+  .hint { font-size: 12px; color: var(--muted); } .hint.alto { color: var(--warn); font-weight: 700; } .hint.obj { color: var(--accent); font-weight: 700; }
+  .ruta-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .tema { display: inline-flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--muted); }
+  .tema select { width: auto; padding: 4px 6px; }
+  .motivo { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+  .motivo label { flex-direction: row; gap: 8px; align-items: flex-start; color: var(--ink); font-size: 13px; border: 1px solid var(--line); border-radius: 6px; padding: 8px; cursor: pointer; }
+  .motivo label.sel { border-color: var(--accent); background: var(--accent-soft); }
+  .tipo { font-size: 11.5px; font-weight: 700; border-radius: 999px; padding: 2px 8px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
+  .tipo.neg { background: var(--ok-soft); color: var(--ok); }
+  .estado { font-size: 12px; } .estado.pedida { color: var(--accent); font-weight: 700; } .estado.ok { color: var(--ok); font-weight: 700; }
+  .badge { font-size: 11.5px; font-weight: 700; background: var(--warn-soft); color: var(--warn); border-radius: 999px; padding: 2px 8px; margin-left: 6px; }
+  .vig { display: flex; gap: 10px 14px; flex-wrap: wrap; align-items: flex-end; }
+  .vig label { width: 170px; }
+  .rapidos { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 12.5px; color: var(--muted); }
+  .formas { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 12px; }
+  @media (max-width: 700px) { .formas { grid-template-columns: minmax(0, 1fr); } }
+  .forma { border: 1px solid var(--line); border-radius: 8px; padding: 12px; } .forma p { margin: 4px 0 10px; }
+  .acciones { display: flex; gap: 8px; flex-wrap: wrap; } .acciones .btn { font-size: 13px; padding: 8px 12px; }
+  .btn.subir { background: var(--accent); border-color: var(--accent); color: var(--bg); display: inline-flex; flex-direction: row; align-items: center; }
+  .cargadas { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 10px; font-size: 12.5px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header class="top"><div class="in"><h1>Tarifas BIDCOM</h1><span style="display:flex;gap:16px;align-items:center;flex-wrap:wrap"><span class="muted" id="who"></span>
+  <label class="tema" for="tema" style="flex-direction:row">Tema <select id="tema"><option value="auto">Automático</option><option value="light">Claro</option><option value="dark">Oscuro</option></select></label></span></div></header>
+<div class="wrap"><div class="modos" id="modos" role="tablist" aria-label="Tipo de transporte"></div><div id="app" style="display:flex;flex-direction:column;gap:16px"></div></div>
+
+<script>
+var D = <?!= datos ?>;
+var CLAVE = '<?!= clave ?>';
+var MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+var modo = D.pedidos.length ? D.pedidos[0].modo : 'mar';
+try { if (!D.pedidos.length) modo = localStorage.getItem('bidcom-modo') || 'mar'; } catch (e) {}
+
+// Tema claro / oscuro: lo elige cada persona y se recuerda en su navegador
+function aplicarTema(t) { if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); else document.documentElement.removeAttribute('data-theme'); }
+(function () { var t = 'auto'; try { t = localStorage.getItem('bidcom-tema') || 'auto'; } catch (e) {} aplicarTema(t); var sel = document.getElementById('tema'); sel.value = t;
+  sel.onchange = function () { aplicarTema(sel.value); try { localStorage.setItem('bidcom-tema', sel.value); } catch (e) {} }; })();
+
+/* ---------- utilidades ---------- */
+function copia(o) { return JSON.parse(JSON.stringify(o || {})); }
+function esc(s) { return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function n(v) { if (v === '' || v === null || v === undefined) return NaN; return Number(String(v).replace(',', '.')); }
+function vacio(v) { return v === '' || v === null || v === undefined; }
+function fmt(v) { return isNaN(v) ? '—' : v.toLocaleString('es-AR', { maximumFractionDigits: 2 }); }
+function iso(d) { return d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2) + '-' + ('0' + d.getUTCDate()).slice(-2); }
+function aUTC(s) { var p = String(s).split('-'); return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])); }
+function sumarDias(s, k) { var d = aUTC(s); d.setUTCDate(d.getUTCDate() + k); return iso(d); }
+function finDeMes(s) { var d = aUTC(s); var e = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate())); e.setUTCDate(e.getUTCDate() - 1); return iso(e); }
+function diasEntre(a, b) { return Math.round((aUTC(b) - aUTC(a)) / 86400000); }
+function fCorta(s) { if (!s) return ''; var p = s.split('-'); return Number(p[2]) + ' ' + MESES[Number(p[1]) - 1]; }
+function fVig(d, h) { return fCorta(d) + ' al ' + fCorta(h) + ' ' + String(h).slice(0, 4); }
+function valido(s) { return /^\d{4}-\d{2}-\d{2}$/.test(s || ''); }
+function mismo(a, b) { return String(a || '').toUpperCase().replace(/[^A-Z0-9]/g, '') === String(b || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+function checkHTML(errs) {
+  return errs.length ? '<p class="small muted">Faltan ' + errs.length + ' dato(s):</p><ul class="check small">' + errs.slice(0, 12).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + (errs.length > 12 ? '<li>y ' + (errs.length - 12) + ' más</li>' : '') + '</ul>'
+    : '<p class="done">Está todo completo.</p>';
+}
+function pedidosDe(m, desde) { return D.pedidos.filter(function (p) { return p.modo === m && (!desde || p.desde === desde); }); }
+
+/* ---------- vigencia: igual para marítimo y aéreo ---------- */
+// Por defecto: si hay pedido de mejora, esa vigencia; si la última sigue vigente, la que sigue; si no, desde hoy.
+function vigenciaInicial(m, durDefecto) {
+  var p = pedidosDe(m)[0]; if (p) return { desde: p.desde, hasta: p.hasta };
+  var E = (m === 'mar' ? D.mar : D.air).envios, u = E[0];
+  if (u && u.hasta >= D.hoy) { var dur = diasEntre(u.desde, u.hasta); var d = sumarDias(u.hasta, 1); return { desde: d, hasta: sumarDias(d, dur) }; }
+  return { desde: D.hoy, hasta: sumarDias(D.hoy, durDefecto) };
+}
+function duracionActiva(v) {
+  if (!valido(v.desde) || !valido(v.hasta)) return '';
+  if (v.hasta === sumarDias(v.desde, 6)) return '7'; if (v.hasta === sumarDias(v.desde, 14)) return '15'; if (v.hasta === finDeMes(v.desde)) return 'mes'; return '';
+}
+function vigenciaHTML(p, v, M) {
+  var act = duracionActiva(v), dias = valido(v.desde) && valido(v.hasta) ? diasEntre(v.desde, v.hasta) + 1 : 0;
+  var recientes = Object.keys(M.ultimos).sort().reverse().filter(function (d) { return M.ultimos[d].hasta >= sumarDias(D.hoy, -31); }).slice(0, 4);
+  return '<section class="panel"><h2>Vigencia de la tarifa</h2>' +
+    '<div class="vig"><label>Desde<input type="date" id="' + p + 'desde" value="' + esc(v.desde) + '" class="' + (valido(v.desde) ? '' : 'bad') + '"></label>' +
+    '<label>Hasta<input type="date" id="' + p + 'hasta" value="' + esc(v.hasta) + '" class="' + (valido(v.hasta) && v.hasta >= v.desde ? '' : 'bad') + '"></label>' +
+    '<div class="rapidos">Duración: ' + [['7', '1 semana'], ['15', '15 días'], ['mes', '1 mes']].map(function (x) {
+      return '<button type="button" class="chip" data-' + p + 'dur="' + x[0] + '" aria-pressed="' + (act === x[0]) + '">' + x[1] + '</button>'; }).join('') +
+    (dias > 0 ? '<span>· ' + dias + ' días</span>' : '') + '</div></div>' +
+    '<p class="hint" style="margin:8px 0 0">Según el contexto la tarifa puede valer una semana, 15 días o un mes. Unos días antes del vencimiento te avisamos por mail para que cargues la nueva.</p>' +
+    (recientes.length ? '<div class="cargadas">Ya cargaste: ' + recientes.map(function (d) { var u = M.ultimos[d];
+      return '<button type="button" class="chip" data-' + p + 'ir="' + esc(d) + '" aria-pressed="' + (d === v.desde) + '">' + esc(fVig(u.desde, u.hasta)) + '</button>'; }).join('') +
+      '<span>Elegí una para corregirla o mejorarla.</span></div>' : '') + '</section>';
+}
+function bindVigencia(p, v, alCambiarDesde) {
+  var de = document.getElementById(p + 'desde'), ha = document.getElementById(p + 'hasta');
+  de.onchange = function () { var dur = valido(v.desde) && valido(v.hasta) ? diasEntre(v.desde, v.hasta) : 14; v.desde = de.value; if (valido(v.desde) && (!valido(v.hasta) || v.hasta < v.desde)) v.hasta = sumarDias(v.desde, dur); alCambiarDesde(); };
+  ha.onchange = function () { v.hasta = ha.value; render(); };
+  document.querySelectorAll('[data-' + p + 'dur]').forEach(function (b) { b.onclick = function () {
+    if (!valido(v.desde)) return; var k = b.getAttribute('data-' + p + 'dur'); v.hasta = k === 'mes' ? finDeMes(v.desde) : sumarDias(v.desde, Number(k) - 1); render(); }; });
+  document.querySelectorAll('[data-' + p + 'ir]').forEach(function (b) { b.onclick = function () { v.desde = b.getAttribute('data-' + p + 'ir'); alCambiarDesde(); }; });
+}
+function errVig(v) {
+  if (!valido(v.desde) || !valido(v.hasta)) return ['Falta la vigencia (desde y hasta)'];
+  if (v.hasta < v.desde) return ['La vigencia "hasta" es anterior a "desde"'];
+  return [];
+}
+function pedidosHTML(m) {
+  var ps = pedidosDe(m); if (!ps.length) return '';
+  var mar = m === 'mar';
+  return '<section class="panel"><div class="alert info"><h2 style="margin:0 0 6px">BIDCOM te pide mejorar estas tarifas</h2>' +
+    '<p class="small" style="margin:0 0 8px">Cargá los valores mejorados más abajo (ya está todo precargado) y enviá. ' + (mar ? 'Valor por contenedor = flete + Recarga IMO + Fuel adjust + Adicional puertos internos.' : 'Valor = all-in USD/kg a ' + D.air.peso + ' kg.') + '</p>' +
+    '<div class="tablewrap"><table><thead><tr><th>Vigencia</th><th>Ruta</th><th>' + (mar ? 'Naviera' : 'Aerolínea') + '</th>' + (mar ? '<th>Contenedor</th>' : '') + '<th>Tu valor</th><th>Objetivo</th><th>Comentario</th></tr></thead><tbody>' +
+    ps.map(function (p) { return '<tr><td>' + esc(fVig(p.desde, p.hasta)) + '</td><td>' + esc(p.origen + ' → ' + p.destino) + '</td><td>' + esc(p.carrier) + '</td>' + (mar ? '<td>' + esc(p.ctnr) + '</td>' : '') +
+      '<td>USD ' + fmt(p.actual) + (mar ? '' : '/kg') + '</td><td>' + (p.objetivo !== '' ? '<b>USD ' + fmt(p.objetivo) + (mar ? '' : '/kg') + '</b>' : '<span class="muted">Tu mejor valor</span>') + '</td><td>' + esc(p.mensaje) + '</td></tr>'; }).join('') +
+    '</tbody></table></div></div></section>';
+}
+function enviosHTML(titulo, lista) {
+  if (!lista.length) return '';
+  return '<section class="panel"><h2>' + titulo + '</h2><div class="tablewrap"><table><thead><tr><th>Vigencia</th><th>Versión</th><th>Tipo de tarifa</th><th>Estado</th><th>Enviado</th><th>Rutas</th></tr></thead><tbody>' +
+    lista.map(function (e) {
+      var cls = /mejora/.test(e.estado) ? 'pedida' : e.estado === 'Aprobada' ? 'ok' : 'muted';
+      return '<tr><td>' + esc(fVig(e.desde, e.hasta)) + '</td><td>v' + esc(e.version) + '</td><td><span class="tipo' + (e.tipo === 'Negociada' ? ' neg' : '') + '">' + esc(e.tipo) + '</span>' +
+        (e.motivo === 'Corrección' ? ' <span class="muted small">corrección</span>' : '') + '</td><td><span class="estado ' + cls + '">' + esc(e.estado) + '</span></td><td>' + esc(e.recibido) + '</td><td>' + esc(e.rutas) + '</td></tr>'; }).join('') +
+    '</tbody></table></div></section>';
+}
+function motivoHTML(nombre, actual, u, hayPedido) {
+  if (!u) return '<p class="small" style="margin:12px 0">Este envío se registra como <span class="tipo">Tarifa inicial</span></p>';
+  var opc = [['negociada', 'Es una tarifa mejorada' + (hayPedido ? ' (respondo el pedido de BIDCOM)' : ''), 'Se registra como tarifa negociada. Tu tarifa inicial queda guardada.'],
+             ['correccion', 'Corrijo un error de mi envío anterior', 'Reemplaza tu envío anterior (sigue siendo tu ' + (u.tipo === 'Negociada' ? 'tarifa negociada' : 'tarifa inicial') + ').']];
+  return '<div class="motivo" role="radiogroup" aria-label="Motivo del envío"><b class="small">Ya enviaste tarifas para esta vigencia. ¿Qué es este envío?</b>' + opc.map(function (o) {
+    return '<label class="' + (actual === o[0] ? 'sel' : '') + '"><input type="radio" name="' + nombre + '" value="' + o[0] + '" ' + (actual === o[0] ? 'checked' : '') + '><span><b>' + o[1] + '</b><br><span class="muted small">' + o[2] + '</span></span></label>'; }).join('') + '</div>';
+}
+function render() {
+  document.getElementById('who').textContent = D.agente;
+  document.getElementById('modos').innerHTML = [['mar', 'Marítimo'], ['air', 'Aéreo']].map(function (m) {
+    return '<button type="button" role="tab" data-modo="' + m[0] + '" aria-selected="' + (modo === m[0]) + '">' + m[1] + (pedidosDe(m[0]).length ? '<span class="punto" title="Pedido de mejora"></span>' : '') + '</button>'; }).join('');
+  document.querySelectorAll('[data-modo]').forEach(function (b) { b.onclick = function () { modo = b.getAttribute('data-modo'); try { localStorage.setItem('bidcom-modo', modo); } catch (e) {} render(); window.scrollTo(0, 0); }; });
+  var y = window.scrollY;
+  if (modo === 'mar') renderMar(); else renderAir();
+  window.scrollTo(0, y);
+}
+function renderOk(titulo, res, v, volver) {
+  document.getElementById('app').innerHTML = '<section class="panel"><div class="alert ok"><h2 style="margin:0 0 6px">' + titulo + '</h2>' +
+    '<p>Vigencia del ' + esc(fVig(v.desde, v.hasta)) + ', versión ' + esc(res.version) + ', registrada como <b>tarifa ' + esc(String(res.tipo || 'Inicial').toLowerCase()) + '</b> (código ' + esc(res.id) + '). Gracias.</p></div>' +
+    '<p class="small muted" style="margin-top:12px">El equipo de BIDCOM la revisa. Si te pide una mejora, te llega un mail y la vas a ver arriba al entrar con este mismo link.</p>' +
+    '<div style="margin-top:12px"><button class="btn" id="volver">Volver al formulario</button></div></section>';
+  document.getElementById('volver').onclick = volver;
+}
+function respuesta(idCheck, ok) {
+  return function (res) {
+    if (!res.ok) { render(); document.getElementById(idCheck).innerHTML = '<div class="alert bad"><b>BIDCOM no pudo registrar el envío:</b><ul>' + res.errores.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div>'; return; }
+    D = res.datos; ok(res); render(); window.scrollTo(0, 0);
+  };
+}
+function falla(idCheck, fin) { return function (err) { fin(); render(); document.getElementById(idCheck).innerHTML = '<div class="alert bad"><b>No se pudo enviar.</b> ' + esc(err && err.message ? err.message : 'Probá de nuevo en unos minutos.') + '</div>'; }; }
+
+/* ================================================================== */
+/* MARÍTIMO                                                            */
+/* ================================================================== */
+var mVig = vigenciaInicial('mar', 14), mForm = null, mEnviando = false, mResultado = null, mMotivo = '', mPrecarga = '';
+function MR() { return D.mar; }
+function unidadDef(c) {
+  var t = String(c).toUpperCase();
+  if (/HANDLING|TELEX|DOCUMENT/.test(t)) return 'Por BL';
+  if (/PICK|CUSTOMS|ISSUE/.test(t)) return 'Por embarque';
+  if (/WAREHOUSE/.test(t)) return 'Por CBM';
+  return 'Por contenedor';
+}
+function mUltimo() { return MR().ultimos[mVig.desde] || null; }
+function gastosBase(prev) {
+  var L = MR().listas.conceptos || [];
+  var std = L.map(function (c) { var p = (prev || []).filter(function (x) { return x.concepto === c; })[0]; return { concepto: c, importe: p ? p.importe : '', unidad: p ? p.unidad : unidadDef(c), descripcion: '' }; });
+  var extra = (prev || []).filter(function (x) { return L.indexOf(x.concepto) < 0; })
+    .map(function (x) { return { concepto: x.concepto, importe: x.importe, unidad: x.unidad, descripcion: x.descripcion || String(x.concepto).replace(/^Otro: /, ''), extra: true }; });
+  return std.concat(extra);
+}
+function rutaMarVacia(base) {
+  return { pol: '', pod: base ? base.pod : ((MR().listas.pod || [])[0] || 'BUENOS AIRES'), naviera: '', servicio: 'DIRECTO', directo: true, transbordo: '', tt: '',
+    pagadero: base ? base.pagadero : 'COLLECT', contenedores: {}, localesArg: base ? base.localesArg : '', imo: '', fuel: '', puertos: '', comentarios: '',
+    gastos: base ? copia(base.gastos) : gastosBase(null) };
+}
+// Precarga: el envío de esta vigencia si existe; si no, el último envío como punto de partida
+// Lleva cualquier forma de escribir el contenedor a los tipos de la base madre: 20ST, 40ST/40HQ, 40NOR
+function tipoCtnr(v) { var t = String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); return /NOR/.test(t) ? '40NOR' : /^20/.test(t) ? '20ST' : /^40/.test(t) ? '40ST/40HQ' : ''; }
+function contenedoresNorm(o) { var out = {}; Object.keys(o || {}).forEach(function (k) { var c = tipoCtnr(k); if (c && !out[c]) out[c] = o[k]; }); return out; }
+function cargarMar() {
+  var u = mUltimo(), base = u, E = MR().envios;
+  if (!base && E.length) base = MR().ultimos[E[0].desde];
+  mPrecarga = u ? 'esta' : base ? 'ultima' : '';
+  mMotivo = u && pedidosDe('mar', mVig.desde).length ? 'negociada' : '';
+  if (u) mVig.hasta = u.hasta;
+  mForm = !base ? { rutas: [rutaMarVacia(null)] } : { rutas: base.rutas.map(function (r) { var x = copia(r); x.gastos = gastosBase(r.gastos); x.contenedores = contenedoresNorm(x.contenedores); x.servicio = x.directo ? 'DIRECTO' : 'TRASBORDO'; return x; }) };
+}
+function mErrores() {
+  var e = errVig(mVig), C = MR().contenedores;
+  mForm.rutas.forEach(function (r, i) {
+    var p = 'Ruta ' + (i + 1) + (r.pol ? ' (' + r.pol + ')' : '') + ': ';
+    if (!r.pol) e.push(p + 'falta el POL');
+    if (!r.pod) e.push(p + 'falta el POD');
+    if (!r.naviera) e.push(p + 'falta la naviera');
+    if (!r.directo && !r.transbordo) e.push(p + 'falta el puerto de transbordo');
+    if (!(n(r.tt) > 0)) e.push(p + 'falta el transit time');
+    var conts = C.filter(function (c) { return r.contenedores[c] && n(r.contenedores[c].flete) > 0; });
+    if (!conts.length) e.push(p + 'falta el flete de al menos un contenedor');
+    conts.forEach(function (c) { if (isNaN(n(r.contenedores[c].dias))) e.push(p + 'faltan los días libres de ' + c); });
+    if (isNaN(n(r.localesArg))) e.push(p + 'faltan los Locales ARG');
+    var gs = r.gastos.filter(function (g) { return !vacio(g.importe); });
+    if (!gs.length) e.push(p + 'faltan los gastos en origen');
+    gs.forEach(function (g) { if (g.extra && !String(g.descripcion || '').trim()) e.push(p + 'concepto adicional sin descripción'); });
+  });
+  return e;
+}
+function opciones(lista, val, vacioTxt) {
+  return (vacioTxt ? '<option value="">' + vacioTxt + '</option>' : '') + (lista || []).map(function (v) { return '<option ' + (v === val ? 'selected' : '') + '>' + esc(v) + '</option>'; }).join('') +
+    (val && (lista || []).indexOf(val) < 0 ? '<option selected>' + esc(val) + '</option>' : '');
+}
+function mLocalesHint(v) {
+  var x = n(v), A = MR().localesAceptado;
+  return !isNaN(x) && x > A ? '<span class="hint alto">Supera lo aceptado por BIDCOM (USD ' + fmt(A) + ')</span>' : '<span class="hint">Valor aceptado por BIDCOM: USD ' + fmt(A) + '</span>';
+}
+function mPedidoDe(r, c) {
+  return pedidosDe('mar', mVig.desde).filter(function (p) { return mismo(p.origen, r.pol) && mismo(p.destino, r.pod) && mismo(p.carrier, r.naviera) && p.ctnr === c; })[0];
+}
+function mRutaHTML(r, i) {
+  var L = MR().listas, nr = mForm.rutas.length, pedRuta = MR().contenedores.some(function (c) { return mPedidoDe(r, c); });
+  function inp(k, v, bad, label, step) { return '<input type="number" min="0" step="' + (step || '0.01') + '" data-mr="' + i + '" data-mk="' + k + '" value="' + esc(v) + '" class="' + (bad ? 'bad' : '') + '" aria-label="' + esc(label) + '">'; }
+  return '<div class="route' + (pedRuta ? ' pedido' : '') + '"><div class="ruta-head"><h3>Ruta ' + (i + 1) + (r.pol ? ': ' + esc(r.pol) + ' → ' + esc(r.pod) : '') + (pedRuta ? ' <span class="tipo">Pedido de mejora</span>' : '') + '</h3>' +
+      (nr > 1 ? '<button type="button" class="btn" data-mquitar="' + i + '">Quitar ruta</button>' : '') + '</div>' +
+    '<div class="grid">' +
+      '<label>POL<select data-mr="' + i + '" data-mk="pol" class="' + (r.pol ? '' : 'bad') + '">' + opciones(L.pol, r.pol, 'Elegir…') + '</select></label>' +
+      '<label>POD<select data-mr="' + i + '" data-mk="pod" class="' + (r.pod ? '' : 'bad') + '">' + opciones(L.pod, r.pod, 'Elegir…') + '</select></label>' +
+      '<label>Naviera<select data-mr="' + i + '" data-mk="naviera" class="' + (r.naviera ? '' : 'bad') + '">' + opciones(L.naviera, r.naviera, 'Elegir…') + '</select></label>' +
+      '<label>Tipo de servicio<select data-mr="' + i + '" data-mk="directo"><option value="si" ' + (r.directo ? 'selected' : '') + '>DIRECTO</option><option value="no" ' + (r.directo ? '' : 'selected') + '>TRASBORDO</option></select></label>' +
+      (r.directo ? '' : '<label>Puerto de transbordo<select data-mr="' + i + '" data-mk="transbordo" class="' + (r.transbordo ? '' : 'bad') + '">' + opciones(L.pol, r.transbordo, 'Elegir…') + '</select></label>') +
+      '<label>Transit time (días)' + inp('tt', r.tt, !(n(r.tt) > 0), 'Transit time', '1') + '</label>' +
+      '<label>Pagadero<select data-mr="' + i + '" data-mk="pagadero">' + opciones(L.pagadero, r.pagadero) + '</select></label>' +
+    '</div>' +
+    '<div><div class="small muted" style="margin-bottom:4px">Flete en USD por contenedor. Completá solo los que cotizás, cada uno con sus días libres. 40ST/40HQ es un solo valor para los dos.</div>' +
+      '<div class="tablewrap"><table><thead><tr><th>Contenedor</th><th>Valor flete USD</th><th>Días libres</th></tr></thead><tbody>' + MR().contenedores.map(function (c) {
+        var x = r.contenedores[c] || {}, conFlete = n(x.flete) > 0, p = mPedidoDe(r, c);
+        return '<tr class="' + (p ? 'pedido' : '') + '"><td><b>' + c + '</b>' + (p ? '<div class="hint obj">' + (p.objetivo !== '' ? 'Objetivo: USD ' + fmt(p.objetivo) + ' (flete + recargos)' : 'BIDCOM pide mejorar') + '</div>' : '') + '</td>' +
+          '<td><input type="number" min="0" step="0.01" data-mr="' + i + '" data-mc="' + c + '" data-mck="flete" value="' + esc(x.flete) + '" aria-label="Flete ' + c + '"></td>' +
+          '<td><input type="number" min="0" step="1" data-mr="' + i + '" data-mc="' + c + '" data-mck="dias" value="' + esc(x.dias) + '" class="' + (conFlete && isNaN(n(x.dias)) ? 'bad' : '') + '" aria-label="Días libres ' + c + '"></td></tr>'; }).join('') +
+      '</tbody></table></div></div>' +
+    '<div class="grid">' +
+      '<label>Locales ARG (USD)' + inp('localesArg', r.localesArg, isNaN(n(r.localesArg)), 'Locales ARG') + '<span data-mhint="' + i + '">' + mLocalesHint(r.localesArg) + '</span></label>' +
+      '<label>Recarga IMO (USD)' + inp('imo', r.imo, false, 'Recarga IMO') + '</label>' +
+      '<label>Fuel adjust (USD)' + inp('fuel', r.fuel, false, 'Fuel adjust') + '</label>' +
+      '<label>Adicional puertos internos (USD)' + inp('puertos', r.puertos, false, 'Adicional puertos internos') + '</label>' +
+    '</div>' +
+    '<div class="origin" style="border:1px solid var(--warn);border-radius:8px;padding:12px"><h3>Gastos en origen <span class="badge">Importante</span></h3>' +
+      '<p class="small muted" style="margin:4px 0 8px">Un importe por concepto, con su unidad. Dejá vacío lo que no aplica. No envíes un total sin desglose.</p>' +
+      '<div class="tablewrap"><table><thead><tr><th>Concepto</th><th>Importe USD</th><th>Unidad</th></tr></thead><tbody>' + r.gastos.map(function (g, j) {
+        return '<tr><td>' + (g.extra ? '<input data-mr="' + i + '" data-mg="' + j + '" data-mgk="descripcion" placeholder="Descripción del concepto" value="' + esc(g.descripcion) + '" class="' + (String(g.descripcion || '').trim() ? '' : 'bad') + '">' : esc(g.concepto)) + '</td>' +
+          '<td><input type="number" min="0" step="0.01" data-mr="' + i + '" data-mg="' + j + '" data-mgk="importe" value="' + esc(g.importe) + '" aria-label="Importe ' + esc(g.concepto) + '"></td>' +
+          '<td><select data-mr="' + i + '" data-mg="' + j + '" data-mgk="unidad">' + opciones(L.unidades, g.unidad) + '</select></td></tr>'; }).join('') + '</tbody></table></div>' +
+      '<div style="margin-top:8px"><button type="button" class="btn" data-motro="' + i + '">+ Otro concepto</button></div></div>' +
+    '<label>Comentarios<input data-mr="' + i + '" data-mk="comentarios" value="' + esc(r.comentarios) + '"></label></div>';
+}
+function renderMar() {
+  if (!mForm) cargarMar();
+  if (mResultado) { renderOk('Recibimos tus tarifas marítimas', mResultado, mVig, function () { mResultado = null; mVig = vigenciaInicial('mar', 14); cargarMar(); render(); }); return; }
+  var errs = mErrores(), u = mUltimo(), html = '';
+  html += pedidosHTML('mar');
+  html += vigenciaHTML('m', mVig, MR());
+  html += excelHTML('m');
+  if (mPrecarga) html += '<p class="small muted" style="margin:-8px 0 0 4px">' + (mPrecarga === 'esta' ? 'Precargamos tu envío de esta vigencia: revisalo y enviá la nueva versión.' : 'Precargamos tu última cotización como punto de partida: actualizá lo que cambió.') + '</p>';
+  html += '<section class="panel"><h2>Lo importante</h2><div class="alert warn"><b>Gastos en origen.</b> Completalos concepto por concepto, con su unidad de cobro. BIDCOM los usa como base para una negociación específica de gastos en origen.</div>' +
+    '<ul class="notes"><li>Locales ARG: el valor aceptado por BIDCOM es USD ' + fmt(MR().localesAceptado) + '.</li>' +
+    '<li>Cotizá cada contenedor con su valor y sus días libres.</li><li>Una naviera por ruta. Recarga IMO, Fuel adjust y Adicional puertos internos van cada uno en su campo, en USD.</li></ul></section>';
+  html += '<div class="layout"><div style="display:flex;flex-direction:column;gap:16px"><section class="panel"><h2>Rutas</h2><div style="display:flex;flex-direction:column;gap:12px">' + mForm.rutas.map(mRutaHTML).join('') + '</div>' +
+    '<div style="margin-top:12px"><button type="button" class="btn" id="mmas">+ Agregar otra ruta</button></div></section></div>';
+  html += '<aside class="panel"><h2>Antes de enviar</h2><div id="mcheck">' + checkHTML(errs) + '</div>' + motivoHTML('mmotivo', mMotivo, u, pedidosDe('mar', mVig.desde).length) +
+    '<button class="btn primary" id="menviar" ' + (mEnviando ? 'disabled' : '') + '>' + (mEnviando ? 'Enviando…' : (u ? 'Enviar nueva versión' : 'Enviar a BIDCOM')) + '</button>' +
+    '<p class="small muted">Una vez enviada, la versión queda registrada. Si necesitás corregir, volvé a entrar con tu link.</p></aside></div>';
+  html += enviosHTML('Mis envíos marítimos', MR().envios);
+  document.getElementById('app').innerHTML = html;
+  bindMar();
+}
+function mRefrescar() { document.getElementById('mcheck').innerHTML = checkHTML(mErrores()); }
+function bindMar() {
+  bindExcel('m');
+  bindVigencia('m', mVig, function () { if (mUltimo()) cargarMar(); else { mMotivo = ''; mPrecarga = mPrecarga === 'esta' ? 'ultima' : mPrecarga; } render(); });
+  document.querySelectorAll('[data-mk]').forEach(function (el) {
+    var r = mForm.rutas[Number(el.getAttribute('data-mr'))], k = el.getAttribute('data-mk');
+    if (el.tagName === 'SELECT') el.onchange = function () { if (k === 'directo') { r.directo = el.value === 'si'; r.servicio = r.directo ? 'DIRECTO' : 'TRASBORDO'; if (r.directo) r.transbordo = ''; } else r[k] = el.value; render(); };
+    else el.oninput = function () {
+      r[k] = el.value;
+      if (k === 'tt') el.classList.toggle('bad', !(n(el.value) > 0));
+      if (k === 'localesArg') { el.classList.toggle('bad', isNaN(n(el.value))); var h = document.querySelector('[data-mhint="' + el.getAttribute('data-mr') + '"]'); if (h) h.innerHTML = mLocalesHint(el.value); }
+      mRefrescar();
+    };
+  });
+  document.querySelectorAll('[data-mc]').forEach(function (el) {
+    var r = mForm.rutas[Number(el.getAttribute('data-mr'))], c = el.getAttribute('data-mc'), k = el.getAttribute('data-mck');
+    el.oninput = function () { r.contenedores[c] = r.contenedores[c] || {}; r.contenedores[c][k] = el.value; mRefrescar(); };
+  });
+  document.querySelectorAll('[data-mg]').forEach(function (el) {
+    var g = mForm.rutas[Number(el.getAttribute('data-mr'))].gastos[Number(el.getAttribute('data-mg'))], k = el.getAttribute('data-mgk');
+    if (el.tagName === 'SELECT') el.onchange = function () { g[k] = el.value; mRefrescar(); };
+    else el.oninput = function () { g[k] = el.value; if (k === 'descripcion') el.classList.toggle('bad', !el.value.trim()); mRefrescar(); };
+  });
+  document.querySelectorAll('[data-motro]').forEach(function (b) { b.onclick = function () { mForm.rutas[Number(b.getAttribute('data-motro'))].gastos.push({ concepto: 'Otro', importe: '', unidad: 'Por BL', descripcion: '', extra: true }); render(); }; });
+  document.querySelectorAll('[data-mquitar]').forEach(function (b) { b.onclick = function () { mForm.rutas.splice(Number(b.getAttribute('data-mquitar')), 1); render(); }; });
+  document.getElementById('mmas').onclick = function () { mForm.rutas.push(rutaMarVacia(mForm.rutas[mForm.rutas.length - 1])); render(); };
+  document.querySelectorAll('input[name=mmotivo]').forEach(function (el) { el.onchange = function () { mMotivo = el.value; render(); }; });
+  document.getElementById('menviar').onclick = enviarMar;
+}
+function enviarMar() {
+  var errs = mErrores();
+  if (errs.length) { document.getElementById('mcheck').innerHTML = '<div class="alert bad"><b>Todavía faltan datos.</b></div>' + checkHTML(errs); return; }
+  if (mUltimo() && !mMotivo) { document.getElementById('mcheck').innerHTML = '<div class="alert bad"><b>Indicá qué es este envío:</b> una tarifa mejorada o una corrección.</div>'; return; }
+  mEnviando = true; render();
+  var payload = { desde: mVig.desde, hasta: mVig.hasta, motivo: mMotivo, archivo: XLI.m && !XLI.m.error ? XLI.m.archivo : '', rutas: mForm.rutas.map(function (r) {
+    var x = copia(r);
+    x.gastos = r.gastos.filter(function (g) { return !vacio(g.importe); }).map(function (g) { return { concepto: g.extra ? 'Otro: ' + (g.descripcion || '') : g.concepto, importe: g.importe, unidad: g.unidad, descripcion: g.extra ? g.descripcion : '' }; });
+    return x; }) };
+  google.script.run
+    .withSuccessHandler(function (res) { mEnviando = false; respuesta('mcheck', function (r) { mResultado = r; mForm = null; XLI.m = null; })(res); })
+    .withFailureHandler(falla('mcheck', function () { mEnviando = false; }))
+    .tarifadorEnviarMaritimo(CLAVE, payload);
+}
+
+/* ================================================================== */
+/* AÉREO                                                               */
+/* ================================================================== */
+var aVig = vigenciaInicial('air', 6), aForm = null, aTab = '', aEnviando = false, aResultado = null, aMotivo = '', aPrecarga = '';
+function A() { return D.air; }
+function aUltimo() { return A().ultimos[aVig.desde] || null; }
+function cargarAir() {
+  var u = aUltimo(), base = u, E = A().envios;
+  if (!base && E.length) base = A().ultimos[E[0].desde];
+  aPrecarga = u ? 'esta' : base ? 'ultima' : '';
+  aMotivo = u && pedidosDe('air', aVig.desde).length ? 'negociada' : '';
+  if (u) aVig.hasta = u.hasta;
+  var f = { rutas: [], gastos: {} };
+  A().rutas.forEach(function (r) {
+    var prev = base ? base.rutas.filter(function (x) { return x.origen === r.origen; })[0] : null;
+    f.rutas.push(prev ? { origen: r.origen, destino: r.destino, aerolinea: prev.aerolinea, transito: prev.transito, minimo: prev.minimo, tarifas: copia(prev.tarifas),
+      fuel: prev.fuel, imo: prev.imo, imoPedido: prev.imoPedido, destino_usd: prev.destino_usd, obs: prev.obs }
+      : { origen: r.origen, destino: r.destino, aerolinea: '', transito: '', minimo: '', tarifas: {}, fuel: '', imo: '', imoPedido: false, destino_usd: '', obs: '' });
+    var g = base && base.gastos[r.origen];
+    f.gastos[r.origen] = g && g.length ? g.map(function (c) { var extra = A().conceptos.indexOf(c.concepto) < 0;
+        return { concepto: extra ? 'Otro' : c.concepto, importe: c.importe, unidad: c.unidad || 'Fijo por embarque', minimo: c.minimo, pedido: c.pedido, descripcion: c.descripcion || (extra ? String(c.concepto).replace(/^Otro: /, '') : '') }; })
+      : A().conceptos.map(function (c) { return { concepto: c, importe: '', unidad: 'Fijo por embarque', minimo: '', pedido: false, descripcion: '' }; });
+  });
+  aForm = f;
+  if (!aTab || !f.gastos[aTab]) aTab = A().rutas.length ? A().rutas[0].origen : '';
+}
+function aErrores() {
+  var e = errVig(aVig);
+  aForm.rutas.forEach(function (r) {
+    var p = r.origen + ': ';
+    if (!String(r.aerolinea || '').trim()) e.push(p + 'falta la aerolínea');
+    if (!(n(r.transito) > 0)) e.push(p + 'falta el tránsito');
+    if (!(n(r.minimo) > 0)) e.push(p + 'falta el mínimo');
+    [100, 300, 500, 1000].forEach(function (b) { if (!(n(r.tarifas[b]) > 0)) e.push(p + 'falta la tarifa de ' + b + ' kg'); });
+    if (isNaN(n(r.fuel))) e.push(p + 'falta el fuel');
+    if (!r.imoPedido && isNaN(n(r.imo))) e.push(p + 'falta el IMO (o marcalo a pedido)');
+    if (isNaN(n(r.destino_usd))) e.push(p + 'faltan los gastos de destino');
+    var cargados = (aForm.gastos[r.origen] || []).filter(function (c) { return c.pedido || !vacio(c.importe); });
+    if (!cargados.length) e.push(p + 'faltan los gastos en origen');
+    cargados.forEach(function (c) {
+      if (c.pedido) return;
+      if (c.unidad === 'Por kg' && vacio(c.minimo)) e.push(p + c.concepto + ': falta el mínimo (cobro por kg)');
+      if (A().conceptos.indexOf(c.concepto) < 0 && !String(c.descripcion || '').trim()) e.push(p + 'concepto adicional sin descripción');
+    });
+  });
+  return e;
+}
+function allin(r) {
+  var W = A().peso, b = [1000, 500, 300, 100, 45].filter(function (x) { return x <= W && n(r.tarifas[x]) > 0; })[0];
+  var rate = b ? n(r.tarifas[b]) : NaN, min = n(r.minimo);
+  if (isNaN(rate) || isNaN(min) || isNaN(n(r.fuel)) || isNaN(n(r.destino_usd))) return NaN;
+  var origen = (aForm.gastos[r.origen] || []).reduce(function (s, c) {
+    if (c.pedido || vacio(c.importe)) return s;
+    return s + (c.unidad === 'Por kg' ? Math.max(n(c.minimo) || 0, n(c.importe) * W) : n(c.importe));
+  }, 0);
+  var imo = r.imoPedido ? 0 : (n(r.imo) || 0);
+  return (Math.max(min, rate * W) + (n(r.fuel) + imo) * W + origen + n(r.destino_usd)) / W;
+}
+function allinTxt(a) { return isNaN(a) ? '<span class="muted small">All-in: completá la ruta para calcularlo</span>' : 'All-in estimado a ' + A().peso + ' kg: <b>USD ' + fmt(a) + '/kg</b>'; }
+function aPedidoDe(r) { return pedidosDe('air', aVig.desde).filter(function (p) { return mismo(p.origen, r.origen) && mismo(p.destino, r.destino); })[0]; }
+function rutaHTML(r, i) {
+  function inp(k, v, bad, step, label) { return '<input type="number" min="0" step="' + (step || '0.01') + '" data-r="' + i + '" data-k="' + k + '" value="' + esc(v) + '" class="' + (bad ? 'bad' : '') + '" aria-label="' + esc(label) + '">'; }
+  var p = aPedidoDe(r);
+  return '<div class="route' + (p ? ' pedido' : '') + '"><div class="route-head"><h3>' + esc(r.origen) + ' → ' + esc(r.destino) + (p ? ' <span class="tipo">Pedido de mejora</span>' : '') + '</h3>' +
+      '<span class="allin" data-allin="' + i + '">' + allinTxt(allin(r)) + '</span></div>' +
+    (p ? '<div class="hint obj">' + (p.objetivo !== '' ? 'Objetivo: USD ' + fmt(p.objetivo) + '/kg all-in a ' + A().peso + ' kg' : 'BIDCOM pide mejorar esta ruta') + (p.mensaje ? ' · ' + esc(p.mensaje) : '') + '</div>' : '') +
+    '<div class="grid"><label>Aerolínea<input data-r="' + i + '" data-k="aerolinea" value="' + esc(r.aerolinea) + '" class="' + (String(r.aerolinea || '').trim() ? '' : 'bad') + '"></label>' +
+    '<label>Tránsito (días)' + inp('transito', r.transito, !(n(r.transito) > 0), '1', 'Tránsito') + '</label>' +
+    '<label>Moneda<input value="USD" disabled></label>' +
+    '<label>Mínimo' + inp('minimo', r.minimo, !(n(r.minimo) > 0), '0.01', 'Mínimo') + '</label></div>' +
+    '<div><div class="small muted" style="margin-bottom:4px">Tarifa USD por kg según peso</div><div class="grid">' + A().breaks.map(function (b) {
+      return '<label>' + b + ' kg' + '<input type="number" min="0" step="0.0001" data-r="' + i + '" data-b="' + b + '" value="' + esc(r.tarifas[b]) + '" class="' + (b !== 45 && !(n(r.tarifas[b]) > 0) ? 'bad' : '') + '"></label>'; }).join('') + '</div></div>' +
+    '<div class="grid"><label>Fuel (USD/kg)' + inp('fuel', r.fuel, isNaN(n(r.fuel)), '0.0001', 'Fuel') + '</label>' +
+    '<label>IMO (USD/kg)<input type="number" min="0" step="0.0001" data-r="' + i + '" data-k="imo" value="' + esc(r.imoPedido ? '' : r.imo) + '" ' + (r.imoPedido ? 'disabled' : '') + ' class="' + (!r.imoPedido && isNaN(n(r.imo)) ? 'bad' : '') + '"></label>' +
+    '<label style="flex-direction:row;align-items:center;gap:6px;margin-top:18px"><input type="checkbox" data-r="' + i + '" data-k="imoPedido" ' + (r.imoPedido ? 'checked' : '') + '> IMO a pedido</label>' +
+    '<label>Gastos destino (USD)' + inp('destino_usd', r.destino_usd, isNaN(n(r.destino_usd)), '0.01', 'Gastos destino') + '</label></div>' +
+    '<label>Observaciones<input data-r="' + i + '" data-k="obs" value="' + esc(r.obs) + '"></label></div>';
+}
+function gastosHTML(origen) {
+  var lista = aForm.gastos[origen]; if (!lista) return '';
+  return '<div class="tablewrap"><table><thead><tr><th>Concepto</th><th>Importe USD</th><th>Unidad</th><th>Mínimo</th><th>A pedido</th></tr></thead><tbody>' +
+    lista.map(function (c, j) {
+      var extra = A().conceptos.indexOf(c.concepto) < 0;
+      return '<tr data-g="' + j + '"><td>' + (extra ? '<input data-gk="descripcion" placeholder="Descripción del concepto" value="' + esc(c.descripcion) + '" class="' + (String(c.descripcion || '').trim() ? '' : 'bad') + '">' : esc(c.concepto)) + '</td>' +
+        '<td><input type="number" min="0" step="0.01" data-gk="importe" value="' + esc(c.pedido ? '' : c.importe) + '" ' + (c.pedido ? 'disabled' : '') + ' aria-label="Importe ' + esc(c.concepto) + '"></td>' +
+        '<td><select data-gk="unidad">' + A().unidades.map(function (u) { return '<option ' + (u === c.unidad ? 'selected' : '') + '>' + u + '</option>'; }).join('') + '</select></td>' +
+        '<td>' + (c.unidad === 'Por kg' && !c.pedido ? '<input type="number" min="0" step="0.01" data-gk="minimo" value="' + esc(c.minimo) + '" class="' + (vacio(c.minimo) ? 'bad' : '') + '" aria-label="Mínimo">' : '<span class="muted">—</span>') + '</td>' +
+        '<td><input type="checkbox" data-gk="pedido" ' + (c.pedido ? 'checked' : '') + ' aria-label="A pedido"></td></tr>';
+    }).join('') + '</tbody></table></div><div style="margin-top:8px"><button type="button" class="btn" id="otro">+ Otro concepto</button></div>';
+}
+function renderAir() {
+  if (!aForm) cargarAir();
+  if (aResultado) { renderOk('Recibimos tu tarifario aéreo', aResultado, aVig, function () { aResultado = null; aVig = vigenciaInicial('air', 6); cargarAir(); render(); }); return; }
+  var notas = A().notas || [], errs = aErrores(), u = aUltimo(), html = '';
+  html += pedidosHTML('air');
+  html += vigenciaHTML('a', aVig, A());
+  html += excelHTML('a');
+  if (aPrecarga) html += '<p class="small muted" style="margin:-8px 0 0 4px">' + (aPrecarga === 'esta' ? 'Precargamos tu envío de esta vigencia: revisalo y enviá la nueva versión.' : 'Precargamos tu última cotización como punto de partida: actualizá lo que cambió.') + '</p>';
+  if (notas.length) html += '<section class="panel"><h2>Lo importante</h2><div class="alert warn"><b>Gastos en origen.</b> ' + esc(notas[0]) + '</div>' +
+    (notas.length > 1 ? '<ul class="notes">' + notas.slice(1).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '') + '</section>';
+  if (!aForm.rutas.length) { html += '<section class="panel"><p>BIDCOM todavía no cargó rutas aéreas para cotizar.</p></section>'; document.getElementById('app').innerHTML = html; bindVigencia('a', aVig, function () { if (aUltimo()) cargarAir(); render(); }); return; }
+  html += '<div class="layout"><div style="display:flex;flex-direction:column;gap:16px">';
+  html += '<section class="panel"><h2>1. Tarifas por ruta</h2><p class="small muted" style="margin:0 0 10px">Es tu tarifa general para la vigencia indicada, no la de un embarque puntual.</p><div style="display:flex;flex-direction:column;gap:12px">' + aForm.rutas.map(rutaHTML).join('') + '</div></section>';
+  html += '<section class="panel origin"><h2>2. Gastos en origen por aeropuerto <span class="badge">Importante</span></h2>' +
+    '<p class="small muted" style="margin:0 0 10px">Un importe por concepto. Si se cobra por kg, elegí "Por kg" e indicá el mínimo. Si no tenés el valor, marcá "A pedido".</p>' +
+    '<div class="tabs">' + aForm.rutas.map(function (r) {
+      var falta = !(aForm.gastos[r.origen] || []).some(function (c) { return c.pedido || !vacio(c.importe); });
+      return '<button type="button" class="tab' + (falta ? ' missing' : '') + '" data-tab="' + esc(r.origen) + '" aria-pressed="' + (aTab === r.origen) + '">' + esc(r.origen) + '</button>'; }).join('') + '</div>' +
+    gastosHTML(aTab) + '</section>';
+  html += '</div><aside class="panel"><h2>Antes de enviar</h2><div id="check">' + checkHTML(errs) + '</div>' + motivoHTML('motivo', aMotivo, u, pedidosDe('air', aVig.desde).length) +
+    '<button class="btn primary" id="enviar" ' + (aEnviando ? 'disabled' : '') + '>' + (aEnviando ? 'Enviando…' : (u ? 'Enviar nueva versión' : 'Enviar a BIDCOM')) + '</button>' +
+    '<p class="small muted">Si después necesitás corregir algo, volvé a entrar con tu link y enviá de nuevo: queda una nueva versión.</p></aside></div>';
+  html += enviosHTML('Mis envíos aéreos', A().envios);
+  document.getElementById('app').innerHTML = html;
+  bindAir();
+}
+function aRefrescar() {
+  document.getElementById('check').innerHTML = checkHTML(aErrores());
+  aForm.rutas.forEach(function (r, i) { var el = document.querySelector('[data-allin="' + i + '"]'); if (el) el.innerHTML = allinTxt(allin(r)); });
+}
+function bindAir() {
+  bindExcel('a');
+  bindVigencia('a', aVig, function () { if (aUltimo()) cargarAir(); else { aMotivo = ''; aPrecarga = aPrecarga === 'esta' ? 'ultima' : aPrecarga; } render(); });
+  document.querySelectorAll('[data-r]').forEach(function (el) {
+    var r = aForm.rutas[+el.getAttribute('data-r')], k = el.getAttribute('data-k'), b = el.getAttribute('data-b');
+    if (el.type === 'checkbox') el.onchange = function () { r[k] = el.checked; render(); };
+    else el.oninput = function () {
+      if (b) { r.tarifas[b] = el.value; if (b !== '45') el.classList.toggle('bad', !(n(el.value) > 0)); }
+      else { r[k] = el.value; el.classList.toggle('bad', k === 'obs' ? false : k === 'aerolinea' ? !el.value.trim() : k === 'transito' || k === 'minimo' ? !(n(el.value) > 0) : isNaN(n(el.value))); }
+      aRefrescar();
+    };
+  });
+  document.querySelectorAll('[data-g]').forEach(function (tr) {
+    var c = aForm.gastos[aTab][+tr.getAttribute('data-g')];
+    tr.querySelectorAll('[data-gk]').forEach(function (el) {
+      var k = el.getAttribute('data-gk');
+      if (el.type === 'checkbox') el.onchange = function () { c.pedido = el.checked; render(); };
+      else if (k === 'unidad') el.onchange = function () { c.unidad = el.value; render(); };
+      else el.oninput = function () { c[k] = el.value; if (k !== 'importe') el.classList.toggle('bad', !String(el.value).trim()); aRefrescar(); };
+    });
+  });
+  document.querySelectorAll('[data-tab]').forEach(function (b) { b.onclick = function () { aTab = b.getAttribute('data-tab'); render(); }; });
+  document.querySelectorAll('input[name=motivo]').forEach(function (el) { el.onchange = function () { aMotivo = el.value; render(); }; });
+  var otro = document.getElementById('otro'); if (otro) otro.onclick = function () { aForm.gastos[aTab].push({ concepto: 'Otro', importe: '', unidad: 'Fijo por embarque', minimo: '', pedido: false, descripcion: '' }); render(); };
+  document.getElementById('enviar').onclick = enviarAir;
+}
+function enviarAir() {
+  var errs = aErrores();
+  if (errs.length) { document.getElementById('check').innerHTML = '<div class="alert bad"><b>Todavía faltan datos.</b></div>' + checkHTML(errs); return; }
+  if (aUltimo() && !aMotivo) { document.getElementById('check').innerHTML = '<div class="alert bad"><b>Indicá qué es este envío:</b> una tarifa mejorada o una corrección.</div>'; return; }
+  aEnviando = true; render();
+  var payload = { desde: aVig.desde, hasta: aVig.hasta, motivo: aMotivo, archivo: XLI.a && !XLI.a.error ? XLI.a.archivo : '', rutas: copia(aForm.rutas), gastos: {} };
+  aForm.rutas.forEach(function (r) { payload.gastos[r.origen] = aForm.gastos[r.origen].map(function (c) { return { concepto: A().conceptos.indexOf(c.concepto) < 0 ? 'Otro: ' + (c.descripcion || '') : c.concepto, importe: c.importe, unidad: c.unidad, minimo: c.minimo, pedido: c.pedido, descripcion: c.descripcion || '' }; }); });
+  google.script.run
+    .withSuccessHandler(function (res) { aEnviando = false; respuesta('check', function (r) { aResultado = r; aForm = null; XLI.a = null; })(res); })
+    .withFailureHandler(falla('check', function () { aEnviando = false; }))
+    .tarifadorEnviarAereo(CLAVE, payload);
+}
+
+/* ================================================================== */
+/* EXCEL: descargar modelo y ejemplo, subir y precargar el formulario  */
+/* El archivo se lee en el navegador; lo que se envía es el formulario */
+/* revisado, igual que la carga a mano.                                */
+/* ================================================================== */
+var XLI = { m: null, a: null };            // resultado de la última carga de Excel por modo
+function normT(s) { return String(s === null || s === undefined ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9+/]/g, ' ').replace(/\s+/g, ' ').trim(); }
+function numX(v) {
+  if (typeof v === 'number') return v;
+  var s = String(v === null || v === undefined ? '' : v).replace(/USD|U\$S|\$/gi, '').trim(); if (!s) return '';
+  if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) s = s.replace(/\./g, '').replace(',', '.'); else s = s.replace(',', '.');
+  var x = Number(s); return isNaN(x) ? '' : x;
+}
+function fechaCelda(v) {
+  if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v)) return v.getFullYear() + '-' + ('0' + (v.getMonth() + 1)).slice(-2) + '-' + ('0' + v.getDate()).slice(-2);
+  if (typeof v === 'number' && v > 20000 && v < 80000) { var d = new Date(Date.UTC(1899, 11, 30)); d.setUTCDate(d.getUTCDate() + Math.floor(v)); return iso(d); }
+  var s = String(v || '').replace(/"/g, '').trim(), m;
+  if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) return m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2);
+  if ((m = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/))) return (m[3].length === 2 ? '20' + m[3] : m[3]) + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2);
+  return '';
+}
+function codigoAero(s) { var t = String(s || '').toUpperCase().trim(), m = t.match(/\(([A-Z]{3})\)/) || t.match(/[-–]\s*([A-Z]{3})\s*$/) || t.match(/^([A-Z]{3})$/); return m ? m[1] : normT(s); }
+function grilla(ws) { return XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true }); }
+// Busca la fila de encabezados con más columnas reconocidas. mapa: [[campo, [alias...]], ...]
+function encabezados(g, mapa) {
+  var mejor = null;
+  for (var i = 0; i < Math.min(25, g.length); i++) {
+    var cols = {}, n = 0, usados = {};
+    (g[i] || []).forEach(function (h, j) {
+      var k = normT(h); if (!k) return;
+      var campo = null;
+      mapa.forEach(function (m) { if (!campo && !cols[m[0]] && m[1].some(function (a) { return k === normT(a); })) campo = m[0]; });
+      if (!campo) mapa.forEach(function (m) { if (!campo && cols[m[0]] === undefined && m[1].some(function (a) { return k.indexOf(normT(a)) === 0; })) campo = m[0]; });
+      if (campo && cols[campo] === undefined && !usados[j]) { cols[campo] = j; usados[j] = true; n++; }
+    });
+    if (n >= 3 && (!mejor || n > mejor.n)) mejor = { fila: i, cols: cols, n: n };
+  }
+  return mejor;
+}
+// Valor a la derecha de una etiqueta ("Vigencia desde | 16/10/2026")
+function etiqueta(g, alias) {
+  for (var i = 0; i < Math.min(12, g.length); i++) for (var j = 0; j < (g[i] || []).length; j++) {
+    if (alias.indexOf(normT(g[i][j])) < 0) continue;
+    for (var k = j + 1; k < g[i].length; k++) if (String(g[i][k]).trim() !== '') return g[i][k];
+  }
+  return '';
+}
+function vigenciaDeLibro(wb) {
+  var out = { desde: '', hasta: '' };
+  wb.SheetNames.forEach(function (n) {
+    var g = grilla(wb.Sheets[n]);
+    out.desde = out.desde || fechaCelda(etiqueta(g, ['VIGENCIA DESDE', 'VALIDEZ DESDE', 'PERIODO DESDE']));
+    out.hasta = out.hasta || fechaCelda(etiqueta(g, ['VIGENCIA HASTA', 'VALIDEZ HASTA', 'PERIODO HASTA']));
+  });
+  return out;
+}
+function valorGasto(v) {
+  if (typeof v === 'number') return v > 0 ? { importe: v, unidad: 'fijo' } : null;
+  var t = normT(v); if (!t) return null;
+  if (/PEDIDO|RQST|REQUEST/.test(t)) return { pedido: true };
+  var kg = String(v).toUpperCase().match(/([\d.,]+)\s*(?:X|POR|\/)\s*KG/), min = String(v).toUpperCase().match(/MIN[A-Z.]*\s*(?:USD\s*)?([\d.,]+)/);
+  if (kg) return { importe: numX(kg[1]), unidad: 'kg', minimo: min ? numX(min[1]) : '' };
+  var x = numX(v); return x === '' || x <= 0 ? null : { importe: x, unidad: 'fijo' };
+}
+
+/* ---------- Marítimo: lectura ---------- */
+function mapaMarModelo() {
+  var m = [['ruta', ['RUTA']], ['pol', ['POL']], ['pod', ['POD']], ['naviera', ['NAVIERA', 'LINEA']], ['servicio', ['TIPO DE SERVICIO', 'SERVICIO']],
+    ['transbordo', ['PUERTO DE TRANSBORDO', 'PUERTO TRANSBORDO', 'TRANSBORDO']], ['tt', ['TRANSIT TIME DIAS', 'TRANSIT TIME', 'TT']], ['pagadero', ['PAGADERO']]];
+  MR().contenedores.forEach(function (c) {
+    var extra = c === '40ST/40HQ' ? ['40ST', '40HQ'] : [];
+    m.push(['f' + c, ['FLETE ' + c, c].concat(extra.map(function (x) { return 'FLETE ' + x; }))]);
+    m.push(['d' + c, ['DIAS LIBRES ' + c].concat(extra.map(function (x) { return 'DIAS LIBRES ' + x; }))]);
+  });
+  return m.concat([['locales', ['LOCALES ARG USD', 'LOCALES ARG', 'LOCALES']], ['imo', ['RECARGA IMO']], ['fuel', ['FUEL ADJUST']], ['puertos', ['ADICIONAL PUERTOS INTERNOS']], ['coment', ['COMENTARIOS', 'OBSERVACIONES']]]);
+}
+var MAPA_MAR_ACTUAL = [['flete', ['VALOR FLETE']], ['ctnr', ['TIPO CTNR', 'TIPO DE CONTENEDOR', 'CONTENEDOR']], ['pol', ['POL']], ['pod', ['POD']], ['naviera', ['LINEA', 'NAVIERA']],
+  ['servicio', ['TIPO DE SERVICIO']], ['transbordo', ['TRANSBORDO']], ['tt', ['TT', 'TRANSIT TIME']], ['desde', ['VALIDEZ QUINCENA DESDE', 'VIGENCIA DESDE', 'VALIDEZ DESDE']],
+  ['hasta', ['VALIDEZ QUINCENA HASTA', 'VIGENCIA HASTA', 'VALIDEZ HASTA']], ['dias', ['DIAS LIBRES']], ['pagadero', ['PAGADERO']], ['locales', ['LOCALES ARG', 'LOCALES']],
+  ['imo', ['RECARGA IMO']], ['fuel', ['FUEL ADJUST']], ['puertos', ['ADICIONAL PUERTOS INTERNOS']], ['coment', ['COMENTARIOS', 'OBSERVACIONES']]];
+function deLista(lista, v) { var t = normT(v); if (!t) return ''; var x = (lista || []).filter(function (o) { return normT(o) === t; })[0]; return x || String(v).trim(); }
+function directoDe(v) { var t = normT(v); return !t || t === 'NO' || t === 'DIRECTO' || t === 'DIRECT'; }
+function leerExcelMar(wb) {
+  var L = MR().listas, avisos = [], rutas = [], hojaF = null, tipo = '';
+  wb.SheetNames.forEach(function (n) {
+    if (hojaF) return;
+    var g = grilla(wb.Sheets[n]), e1 = encabezados(g, mapaMarModelo()), e2 = encabezados(g, MAPA_MAR_ACTUAL);
+    if (e2 && e2.cols.flete !== undefined && e2.cols.ctnr !== undefined) { hojaF = { g: g, e: e2, n: n }; tipo = 'actual'; }
+    else if (e1 && e1.cols.pol !== undefined && MR().contenedores.some(function (c) { return e1.cols['f' + c] !== undefined; })) { hojaF = { g: g, e: e1, n: n }; tipo = 'modelo'; }
+  });
+  if (!hojaF) return { error: 'No encontré la hoja de fletes. Usá el modelo de BIDCOM o tu Excel de siempre (con columnas POL, Valor Flete y Tipo Ctnr).' };
+  var g = hojaF.g, C = hojaF.e.cols, v = function (r, k) { return C[k] === undefined ? '' : r[C[k]]; }, vig = vigenciaDeLibro(wb);
+  var base = function (r) {
+    var tb = v(r, 'transbordo'), sv = normT(v(r, 'servicio'));
+    var directo = /TRAS|TRANS|T\/S/.test(sv) ? false : /DIRECT/.test(sv) ? true : directoDe(tb);
+    return { pol: deLista(L.pol, v(r, 'pol')), pod: deLista(L.pod, v(r, 'pod')) || ((L.pod || [])[0] || ''), naviera: deLista(L.naviera, v(r, 'naviera')),
+      servicio: directo ? 'DIRECTO' : 'TRASBORDO', directo: directo, transbordo: directo || directoDe(tb) ? '' : deLista(L.pol, String(tb).replace(/^VIA\s+/i, '')),
+      tt: numX(v(r, 'tt')), pagadero: /PREPAID/.test(normT(v(r, 'pagadero'))) ? 'PREPAID' : 'COLLECT', contenedores: {},
+      localesArg: numX(v(r, 'locales')), imo: numX(v(r, 'imo')), fuel: numX(v(r, 'fuel')), puertos: numX(v(r, 'puertos')), comentarios: String(v(r, 'coment') || '').trim(), gastos: [] };
+  };
+  if (tipo === 'modelo') {
+    for (var i = hojaF.e.fila + 1; i < g.length; i++) {
+      var r = g[i]; if (!String(v(r, 'pol')).trim()) continue;
+      var x = base(r);
+      MR().contenedores.forEach(function (c) { var f = numX(v(r, 'f' + c)); if (f > 0) x.contenedores[c] = { flete: f, dias: numX(v(r, 'd' + c)) }; });
+      x._num = numX(v(r, 'ruta')) || rutas.length + 1;
+      rutas.push(x);
+    }
+    // Gastos en origen: conceptos en filas, una columna por ruta
+    var gn = wb.SheetNames.filter(function (n) { return /GASTOS/.test(normT(n)); })[0];
+    if (gn) {
+      var gg = grilla(wb.Sheets[gn]), hi = -1;
+      for (var a = 0; a < Math.min(25, gg.length) && hi < 0; a++) if ((gg[a] || []).some(function (h) { return normT(h) === 'CONCEPTO'; })) hi = a;
+      if (hi >= 0) {
+        var H = gg[hi].map(normT), cC = H.indexOf('CONCEPTO'), cU = H.indexOf('UNIDAD'), porRuta = {};
+        H.forEach(function (h, j) { var m = h.match(/^RUTA (\d+)/); if (m) porRuta[j] = Number(m[1]); });
+        gg.slice(hi + 1).forEach(function (row) {
+          var nombre = String(row[cC] || '').trim(); if (!nombre || /^TOTAL|^CONTROL$|^OTRO ESCRIBI|^OTRO$/.test(normT(nombre))) return;
+          var std = (L.conceptos || []).filter(function (c) { return normT(c) === normT(nombre); })[0];
+          var uni = deLista(L.unidades, cU >= 0 ? row[cU] : '') || unidadDef(nombre);
+          Object.keys(porRuta).forEach(function (j) {
+            var imp = numX(row[j]); if (imp === '' || imp < 0) return;
+            var ru = rutas.filter(function (x) { return x._num === porRuta[j]; })[0]; if (!ru) return;
+            ru.gastos.push(std ? { concepto: std, importe: imp, unidad: uni } : { concepto: 'Otro: ' + nombre, importe: imp, unidad: uni, descripcion: nombre });
+          });
+        });
+      } else avisos.push('La hoja de gastos en origen no tiene la columna "Concepto".');
+    } else avisos.push('El archivo no trae la hoja de gastos en origen: completalos en el formulario.');
+  } else {
+    var porClave = {};
+    for (var i2 = hojaF.e.fila + 1; i2 < g.length; i2++) {
+      var r2 = g[i2], f = numX(v(r2, 'flete')); if (!String(v(r2, 'pol')).trim() || !(f > 0)) continue;
+      var k = [normT(v(r2, 'pol')), normT(v(r2, 'pod')), normT(v(r2, 'naviera')), normT(v(r2, 'tt'))].join('|');
+      var ru2 = porClave[k]; if (!ru2) { ru2 = porClave[k] = base(r2); rutas.push(ru2); }
+      vig.desde = vig.desde || fechaCelda(v(r2, 'desde')); vig.hasta = vig.hasta || fechaCelda(v(r2, 'hasta'));
+      var c2 = tipoCtnr(v(r2, 'ctnr')), ok = c2 && MR().contenedores.indexOf(c2) >= 0 ? [c2] : [];
+      if (!ok.length) avisos.push('Fila ' + (i2 + 1) + ': contenedor "' + v(r2, 'ctnr') + '" no reconocido.');
+      ok.forEach(function (c) { ru2.contenedores[c] = { flete: f, dias: numX(v(r2, 'dias')) }; });
+    }
+    avisos.push('Tu formato de siempre no trae los gastos en origen desglosados: completalos en cada ruta antes de enviar.');
+  }
+  if (!rutas.length) return { error: 'La hoja "' + hojaF.n + '" no tiene rutas con flete cargado.' };
+  rutas.forEach(function (x) { delete x._num; x.gastos = gastosBase(x.gastos); });
+  return { rutas: rutas, vig: vig, avisos: avisos, formato: tipo === 'modelo' ? 'modelo BIDCOM' : 'formato de siempre' };
+}
+
+/* ---------- Aéreo: lectura ---------- */
+var MAPA_AIR = [['origen', ['ORIGEN', 'ORIGIN AIRPORT', 'AEROPUERTO DE ORIGEN', 'ORIGIN']], ['destino', ['DESTINO', 'DESTINATION AIRPORT', 'AEROPUERTO DE DESTINO']],
+  ['aerolinea', ['AEROLINEA', 'AEROLINEA HABITUAL', 'AIRLINE']], ['transito', ['TRANSITO DIAS', 'TRANSITO HABITUAL DIAS', 'TRANSITO', 'TRANSIT TIME']],
+  ['minimo', ['MINIMO', 'MINIMUM CHARGE', 'MINIMUM']], ['r45', ['45 KG', 'RATE 45 KG']], ['r100', ['100 KG', 'RATE 100 KG']], ['r300', ['300 KG', 'RATE 300 KG']],
+  ['r500', ['500 KG', 'RATE 500 KG']], ['r1000', ['1000 KG', 'RATE 1000 KG']], ['fuel', ['FUEL USD/KG', 'FUEL SURCHARGE USD/KG', 'FUEL SURCHARGE', 'FUEL']],
+  ['imo', ['IMO USD/KG', 'RECARGO IMO USD/KG', 'RECARGO IMO', 'IMO']], ['dest', ['GASTOS DESTINO USD', 'GASTOS DE DESTINO', 'CARGOS DE DESTINO']],
+  ['vdesde', ['VIGENCIA DESDE']], ['vhasta', ['VIGENCIA HASTA', 'VIGENCIA']], ['obs', ['OBSERVACIONES', 'COMENTARIOS']]];
+var CONCEPTO_AIR = [[/PICK/, 'Pick up'], [/EXPORT|CUSTOMS|ADUANA/, 'Export customs'], [/HANDLING/, 'Handling'], [/DOC/, 'Documentation'], [/WAREHOUSE|DEPOSITO|ALMACEN/, 'Warehouse'], [/SECURITY|SEGURIDAD/, 'Security']];
+function leerExcelAir(wb) {
+  var avisos = [], hoja = null, codigos = {};
+  A().rutas.forEach(function (r) { codigos[codigoAero(r.origen)] = r.origen; });
+  wb.SheetNames.forEach(function (n) {
+    if (hoja) return;
+    var g = grilla(wb.Sheets[n]), e = encabezados(g, MAPA_AIR);
+    if (e && e.cols.origen !== undefined && (e.cols.r500 !== undefined || e.cols.minimo !== undefined)) hoja = { g: g, e: e, n: n };
+  });
+  if (!hoja) return { error: 'No encontré la hoja del tarifario (con columnas Origen, Mínimo y tarifas por kg). Usá el modelo de BIDCOM o tu Excel de siempre.' };
+  var g = hoja.g, C = hoja.e.cols, v = function (r, k) { return C[k] === undefined ? '' : r[C[k]]; }, vig = vigenciaDeLibro(wb), filas = {};
+  for (var i = hoja.e.fila + 1; i < g.length; i++) {
+    var r = g[i], o = String(v(r, 'origen')).trim(); if (!o) continue;
+    if (/REFERENCIA/.test(normT(r.join(' ')))) break;
+    var cod = codigoAero(o), origen = codigos[cod];
+    var tieneDatos = String(v(r, 'aerolinea')).trim() || [100, 300, 500, 1000].some(function (b) { return numX(v(r, 'r' + b)) > 0; });
+    if (!origen) { if (tieneDatos) avisos.push(o + ' no está entre las rutas que pide BIDCOM: no se cargó.'); continue; }
+    if (!tieneDatos && !(numX(v(r, 'minimo')) > 0)) continue;
+    var imoT = normT(v(r, 'imo'));
+    filas[origen] = { aerolinea: String(v(r, 'aerolinea') || '').trim(), transito: numX(v(r, 'transito')), minimo: numX(v(r, 'minimo')),
+      tarifas: { 45: numX(v(r, 'r45')), 100: numX(v(r, 'r100')), 300: numX(v(r, 'r300')), 500: numX(v(r, 'r500')), 1000: numX(v(r, 'r1000')) },
+      fuel: numX(v(r, 'fuel')), imoPedido: /PEDIDO|RQST|REQUEST/.test(imoT), imo: /PEDIDO|RQST|REQUEST/.test(imoT) ? '' : numX(v(r, 'imo')),
+      destino_usd: numX(v(r, 'dest')), obs: String(v(r, 'obs') || '').trim() };
+    vig.desde = vig.desde || fechaCelda(v(r, 'vdesde')); vig.hasta = vig.hasta || fechaCelda(v(r, 'vhasta'));
+  }
+  // Gastos en origen: conceptos en filas, un aeropuerto por columna
+  var gastos = {}, gn = wb.SheetNames.filter(function (n) { return /GASTOS/.test(normT(n)); })[0];
+  if (gn) {
+    var gg = grilla(wb.Sheets[gn]), hi = -1;
+    for (var a = 0; a < Math.min(25, gg.length) && hi < 0; a++) if ((gg[a] || []).some(function (h) { return normT(h) === 'CONCEPTO'; })) hi = a;
+    if (hi >= 0) {
+      var cC = gg[hi].map(normT).indexOf('CONCEPTO'), colAp = {};
+      gg[hi].forEach(function (h, j) { var o2 = codigos[codigoAero(h)]; if (j > cC && o2) colAp[j] = o2; });
+      gg.slice(hi + 1).forEach(function (row) {
+        var nombre = String(row[cC] || '').trim(), t = normT(nombre); if (!t || /^TOTAL|^CONTROL$|^OTRO ESCRIBI/.test(t)) return;
+        var std = null; CONCEPTO_AIR.forEach(function (c) { if (!std && c[0].test(t)) std = c[1]; });
+        Object.keys(colAp).forEach(function (j) {
+          var x = valorGasto(row[j]); if (!x) return;
+          var item = { concepto: std || 'Otro', descripcion: std ? '' : nombre, importe: x.pedido ? '' : x.importe, unidad: x.unidad === 'kg' ? 'Por kg' : 'Fijo por embarque', minimo: x.unidad === 'kg' ? x.minimo : '', pedido: !!x.pedido };
+          (gastos[colAp[j]] = gastos[colAp[j]] || []).push(item);
+        });
+      });
+    } else avisos.push('La hoja de gastos en origen no tiene la columna "Concepto".');
+  } else avisos.push('El archivo no trae la hoja de gastos en origen: completalos en el formulario.');
+  if (!Object.keys(filas).length) return { error: 'La hoja "' + hoja.n + '" no tiene tarifas cargadas para las rutas de BIDCOM.' };
+  A().rutas.forEach(function (r) { if (!filas[r.origen]) avisos.push(r.origen + ': no viene en el archivo, completala a mano.'); });
+  return { filas: filas, gastos: gastos, vig: vig, avisos: avisos };
+}
+
+/* ---------- Subir: precarga el formulario ---------- */
+function subirExcel(p, archivo) {
+  if (typeof XLSX === 'undefined') { XLI[p] = { error: 'No se pudo abrir el lector de Excel. Revisá tu conexión y recargá la página.' }; render(); return; }
+  var lector = new FileReader();
+  lector.onload = function () {
+    var res;
+    try { res = (p === 'm' ? leerExcelMar : leerExcelAir)(XLSX.read(new Uint8Array(lector.result), { type: 'array', cellDates: true })); }
+    catch (e) { res = { error: 'No pude leer el archivo. Guardalo como Excel (.xlsx) y probá de nuevo.' }; }
+    res.archivo = archivo.name;
+    if (!res.error) aplicarExcel(p, res);
+    XLI[p] = res; render(); var el = document.getElementById(p + 'xlres'); if (el) el.scrollIntoView({ block: 'center' });
+  };
+  lector.readAsArrayBuffer(archivo);
+}
+function aplicarExcel(p, res) {
+  var v = p === 'm' ? mVig : aVig;
+  if (valido(res.vig.desde)) v.desde = res.vig.desde;
+  if (valido(res.vig.hasta)) v.hasta = res.vig.hasta;
+  if (!valido(res.vig.desde) || !valido(res.vig.hasta)) res.avisos.unshift('El archivo no trae la vigencia completa: revisala arriba.');
+  if (p === 'm') {
+    mForm = { rutas: res.rutas }; mPrecarga = ''; mMotivo = mUltimo() && pedidosDe('mar', mVig.desde).length ? 'negociada' : '';
+    res.resumen = res.rutas.length + ' ruta(s) desde tu ' + res.formato;
+  } else {
+    var f = { rutas: [], gastos: {} };
+    A().rutas.forEach(function (r) {
+      var x = res.filas[r.origen];
+      f.rutas.push(x ? { origen: r.origen, destino: r.destino, aerolinea: x.aerolinea, transito: x.transito, minimo: x.minimo, tarifas: x.tarifas, fuel: x.fuel, imo: x.imo, imoPedido: x.imoPedido, destino_usd: x.destino_usd, obs: x.obs }
+        : { origen: r.origen, destino: r.destino, aerolinea: '', transito: '', minimo: '', tarifas: {}, fuel: '', imo: '', imoPedido: false, destino_usd: '', obs: '' });
+      var gs = res.gastos[r.origen] || [];
+      f.gastos[r.origen] = A().conceptos.map(function (c) { var y = gs.filter(function (z) { return z.concepto === c; })[0];
+        return y ? { concepto: c, importe: y.importe, unidad: y.unidad, minimo: y.minimo, pedido: y.pedido, descripcion: '' } : { concepto: c, importe: '', unidad: 'Fijo por embarque', minimo: '', pedido: false, descripcion: '' }; })
+        .concat(gs.filter(function (z) { return z.concepto === 'Otro'; }));
+    });
+    aForm = f; aPrecarga = ''; aMotivo = aUltimo() && pedidosDe('air', aVig.desde).length ? 'negociada' : '';
+    res.resumen = Object.keys(res.filas).length + ' ruta(s) y sus gastos en origen';
+  }
+}
+function excelHTML(p) {
+  var R = XLI[p], mar = p === 'm';
+  return '<section class="panel"><h2>¿Cómo querés cargar?</h2><div class="formas">' +
+    '<div class="forma"><b>A mano</b><p class="small muted">Completá el formulario de abajo.</p></div>' +
+    '<div class="forma"><b>Con tu Excel</b><p class="small muted">Descargá el modelo (y mirá el ejemplo), completalo y subilo: el formulario se completa solo, lo revisás y enviás. También podés subir tu Excel de siempre.</p>' +
+    '<div class="acciones"><button type="button" class="btn" data-' + p + 'xl="modelo">Descargar modelo</button><button type="button" class="btn" data-' + p + 'xl="ejemplo">Descargar ejemplo</button>' +
+    '<label class="btn subir">Subir Excel<input type="file" accept=".xlsx,.xls,.xlsm" data-' + p + 'subir hidden></label></div></div></div>' +
+    (R ? '<div id="' + p + 'xlres" style="margin-top:12px">' + (R.error ? '<div class="alert bad"><b>' + esc(R.archivo || 'Archivo') + ':</b> ' + esc(R.error) + '</div>'
+      : '<div class="alert ' + (R.avisos.length ? 'warn' : 'ok') + '"><b>Cargamos ' + esc(R.resumen) + ' de "' + esc(R.archivo) + '".</b> Revisá el formulario (lo que falta queda en rojo) y enviá.' +
+        (R.avisos.length ? '<ul>' + R.avisos.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '') + '</div>') + '</div>' : '') +
+    '<p class="hint" id="' + p + 'xlmsg" style="margin:8px 0 0"></p></section>';
+}
+function bindExcel(p) {
+  document.querySelectorAll('[data-' + p + 'xl]').forEach(function (b) { b.onclick = function () { descargarExcel(p, b.getAttribute('data-' + p + 'xl') === 'ejemplo'); }; });
+  var inp = document.querySelector('[data-' + p + 'subir]');
+  if (inp) inp.onchange = function () { if (inp.files && inp.files[0]) subirExcel(p, inp.files[0]); inp.value = ''; };
+}
+
+/* ---------- Descargar modelo y ejemplo ---------- */
+/* ---------- Descargar modelo y ejemplo (Excel con colores, listas y control) ---------- */
+var XC = { titulo: '0B3C5D', ayuda: 'FDF3D7', ayudaTx: '7A5300', tinta: '15212E', borde: 'C9D3DD',
+  req: 'FFF4CC', opt: 'E6F0F8', auto: 'EDEDED',
+  grupos: { ruta: ['1F4E79', 'D6E4F0'], vig: ['2F5597', 'DAE3F3'], c1: ['2E75B6', 'DDEBF7'], c2: ['1B5E8C', 'D3E6F2'], dias: ['4E7D32', 'E2EFDA'],
+    rec: ['6A4C93', 'E9E2F3'], tarifa: ['2E75B6', 'DDEBF7'], gasto: ['9C6500', 'FCE4B6'], monto: ['B07A10', 'FDF0D5'], obs: ['6B6B6B', 'F2F2F2'], ctrl: ['404040', 'E7E6E6'] } };
+var COLORES_XL = [['req', 'Amarillo: dato obligatorio.'], ['opt', 'Celeste: opcional o según el caso (por ejemplo, el puerto de transbordo o un contenedor que no cotizás).'],
+  ['auto', 'Gris: lo completa BIDCOM o se calcula solo. No escribir.'], ['C6EFCE', 'Control en verde: la fila está completa.'], ['FFC7CE', 'Control en rojo: te dice qué dato falta.'], ['FFEB9C', 'Control en naranja: revisá ese dato.']];
+function letraXL(n) { var t = ''; for (; n > 0; n = Math.floor((n - 1) / 26)) t = String.fromCharCode(65 + (n - 1) % 26) + t; return t; }
+function specMar(ejemplo) {
+  var L = MR().listas, conts = MR().contenedores, hoy = D.hoy, N = 12, F0 = 6, acept = MR().localesAceptado;
+  var cols = [{ h: 'Ruta', w: 6, g: 'ruta', tipo: 'auto', centro: true, nota: 'Número de ruta. Es el que une esta fila con su columna en Gastos en origen.' },
+    { h: 'POL', w: 15, g: 'ruta', lista: 'POL', nota: 'Puerto de carga. Elegí de la lista.' }, { h: 'POD', w: 15, g: 'ruta', lista: 'POD' },
+    { h: 'Naviera', w: 13, g: 'ruta', lista: 'Naviera', nota: 'Una naviera por fila.' }, { h: 'Tipo de servicio', w: 12, g: 'ruta', lista: 'Servicio', nota: 'DIRECTO o TRASBORDO.' },
+    { h: 'Puerto de transbordo', w: 14, g: 'ruta', lista: 'POL', tipo: 'opt', nota: 'Solo si es TRASBORDO: el puerto donde transborda.' }, { h: 'Transit time (días)', w: 9, g: 'ruta', num: true },
+    { h: 'Pagadero', w: 11, g: 'ruta', lista: 'Pagadero' }];
+  conts.forEach(function (c, i) {
+    cols.push({ h: 'Flete ' + c, w: 9, g: i % 2 ? 'c2' : 'c1', banda: c, num: true, fmt: '#,##0', tipo: 'opt', nota: 'USD por contenedor. Vacío si no cotizás ' + c + '.' });
+    cols.push({ h: 'Días libres ' + c, w: 8, g: i % 2 ? 'c2' : 'c1', banda: c, num: true, tipo: 'opt', encG: 'dias' });
+  });
+  cols = cols.concat([{ h: 'Locales ARG USD', w: 10, g: 'rec', num: true, fmt: '#,##0', nota: 'Valor aceptado por BIDCOM: USD ' + acept + '.' },
+    { h: 'Recarga IMO USD', w: 9, g: 'rec', num: true, tipo: 'opt' }, { h: 'Fuel adjust USD', w: 9, g: 'rec', num: true, tipo: 'opt' },
+    { h: 'Adicional puertos internos USD', w: 11, g: 'rec', num: true, tipo: 'opt' }, { h: 'Comentarios', w: 24, g: 'obs', tipo: 'opt' }, { h: 'Control', w: 30, g: 'ctrl', control: true }]);
+  var ej = ejemplo ? [
+    [1, 'Ningbo', 'BUENOS AIRES', 'MSC', 'DIRECTO', '', 38, 'COLLECT', 2700, 14, 3700, 14, '', '', 800, '', 50, '', 'Ejemplo ficticio'],
+    [2, 'Shanghai', 'BUENOS AIRES', 'MAERSK', 'TRASBORDO', 'Singapore', 42, 'COLLECT', 2650, 21, 3650, 21, 3900, 21, 800, 35, 50, '', 'Ejemplo ficticio']] : [];
+  var filas = []; for (var i = 0; i < N; i++) filas.push(ej[i] || [i + 1]);
+  filas = filas.map(function (f) { var x = f.slice(); while (x.length < cols.length) x.push(''); return x; });
+  var conceptos = (L.conceptos || []).concat(['', '', '']);
+  var valEj = { 'Handling fee': [80, 80], 'VGM / Pesada': [25, 25], 'EIR': [10, 10], 'Seal / Precinto': [12, 12], 'ORC / THC': [120, 125], 'Telex release fee': [40, 40], 'Documentation fee': [45, 45] };
+  var gcols = [{ h: 'Concepto', w: 26, g: 'gasto', nota: 'Los conceptos grises son los estándar. Si cobrás otro, escribilo en una fila amarilla vacía.' }, { h: 'Unidad', w: 15, g: 'gasto', lista: 'Unidades' }]
+    .concat(Array.apply(null, Array(N)).map(function (_, k) { return { h: 'Ruta ' + (k + 1), w: 8, g: 'monto', num: true, fmt: '#,##0.00' }; }));
+  var gfilas = conceptos.map(function (c) { var f = [c, c ? unidadDef(c) : 'Por embarque']; for (var k = 0; k < N; k++) f.push(ejemplo && valEj[c] && k < 2 ? valEj[c][k] : ''); return f; });
+  // Control por fila de Fletes (fórmulas en inglés: Excel las traduce solo)
+  var C = function (h) { return letraXL(cols.map(function (c) { return c.h; }).indexOf(h) + 1); };
+  var g0 = F0, g1 = F0 + gfilas.length - 1;
+  var controlFletes = function (r) {
+    var k = r - F0 + 1, gc = letraXL(2 + k), rr = function (h) { return C(h) + r; };
+    var fl = conts.map(function (c) { return rr('Flete ' + c); }), di = conts.map(function (c) { return rr('Días libres ' + c); });
+    return 'IF(' + rr('POL') + '="","",IF(OR(' + ['POD', 'Naviera', 'Tipo de servicio', 'Transit time (días)', 'Pagadero'].map(function (h) { return rr(h) + '=""'; }).join(',') + '),"Falta: POD, naviera, servicio, TT o pagadero",' +
+      'IF(AND(ISNUMBER(SEARCH("TRAS",' + rr('Tipo de servicio') + ')),' + rr('Puerto de transbordo') + '=""),"Falta: puerto de transbordo",' +
+      'IF(COUNT(' + fl.join(',') + ')=0,"Falta: flete de algún contenedor",IF(OR(' + fl.map(function (f, i) { return 'AND(' + f + '<>"",' + di[i] + '="")'; }).join(',') + '),"Falta: días libres",' +
+      'IF(' + rr('Locales ARG USD') + '="","Falta: Locales ARG",IF(COUNT(\'Gastos en origen\'!' + gc + g0 + ':' + gc + g1 + ')=0,"Falta: gastos en origen (columna Ruta ' + k + ')",' +
+      'IF(' + rr('Locales ARG USD') + '>' + acept + ',"Revisar: Locales ARG sobre USD ' + acept + '","Completa"))))))))';
+  };
+  var controlGastos = function (j) { var col = letraXL(j), rf = F0 + (j - 3);
+    return 'IF(AND(Fletes!' + C('POL') + rf + '="",COUNT(' + col + g0 + ':' + col + g1 + ')=0),"",IF(Fletes!' + C('POL') + rf + '="","Revisar: ruta sin flete",IF(COUNT(' + col + g0 + ':' + col + g1 + ')=0,"Falta","Completa")))'; };
+  return { nombre: 'BIDCOM_Cotizacion_Maritima_' + (ejemplo ? 'EJEMPLO' : 'MODELO') + '.xlsx',
+    instrucciones: { titulo: 'Cotización marítima BIDCOM', subtitulo: ejemplo ? 'EJEMPLO COMPLETO (datos ficticios): así queda bien cargado. Para cotizar, usá el MODELO.' : 'MODELO para completar. Cuando termines, subilo en tu link de BIDCOM.',
+      importante: ['Gastos en origen: completalos en la solapa "Gastos en origen", concepto por concepto y por ruta. No envíes un total sin desglose: BIDCOM los usa como base para una negociación específica de gastos en origen.',
+        'Locales ARG: el valor aceptado por BIDCOM es USD ' + acept + '. Recarga IMO, Fuel adjust y Adicional puertos internos van cada uno en su columna, en USD.',
+        'Contenedores: 20ST, 40ST/40HQ (un solo valor para los dos) y 40NOR, cada uno con su valor y sus días libres.',
+        'Una naviera por ruta. Si un recargo no está incluido, indicalo en su columna o en Comentarios, no dentro del nombre de la naviera.'],
+      pasos: ['Arriba de la solapa Fletes completá Vigencia desde y Vigencia hasta. Puede ser 1 semana, 15 días o 1 mes.',
+        'Fletes: una fila por ruta y naviera. La columna Ruta ya trae el número (1, 2, 3…): es el que une cada ruta con su columna de gastos.',
+        'Elegí POL, POD, naviera, tipo de servicio (DIRECTO o TRASBORDO) y pagadero de las listas (flechita en la celda). Si es TRASBORDO, completá el puerto de transbordo.',
+        'Cargá el flete de cada contenedor que cotizás, con sus días libres. Dejá vacío lo que no cotizás.',
+        'Gastos en origen: un importe por concepto en la columna de cada ruta (Ruta 1 = fila 1 de Fletes), con su unidad de cobro. Si cobrás otro concepto, escribilo en una fila amarilla vacía.',
+        'Revisá la columna Control de Fletes y la fila Control de Gastos en origen: tienen que quedar en verde.'],
+      final: 'Guardá el archivo, entrá a tu link personal de BIDCOM, tocá "Subir Excel", revisá el formulario y enviá. Antes de enviar ves todo lo que se cargó y lo que falta.' },
+    hojas: [
+      { nombre: 'Fletes', titulo: 'Fletes · una fila por ruta y naviera (USD)', ayuda: 'Amarillo: obligatorio. Celeste: opcional o según el caso. Completá el flete de cada contenedor que cotizás con sus días libres. La columna Control (a la derecha) te dice qué falta.',
+        vigencia: ejemplo ? [hoy, sumarDias(hoy, 14)] : ['', ''], cols: cols, filas: filas, congelar: 2, controlFila: controlFletes, color: 'ruta' },
+      { nombre: 'Gastos en origen', titulo: 'Gastos en origen · un concepto por fila, una columna por ruta (USD)', ayuda: 'IMPORTANTE: es la base de la negociación de gastos en origen. Un importe por concepto en la columna de cada ruta. Dejá vacío lo que no aplica. Nada de totales sin desglose.',
+        cols: gcols, filas: gfilas, congelar: 2, gasto: true, controlCol: controlGastos, desdeCol: 3, color: 'gasto' }],
+    listas: { POL: L.pol || [], POD: L.pod || [], Naviera: L.naviera || [], Servicio: ['DIRECTO', 'TRASBORDO'], Pagadero: L.pagadero || ['COLLECT', 'PREPAID'], Unidades: L.unidades || [] } };
+}
+function specAir(ejemplo) {
+  var R = A().rutas, hoy = D.hoy, F0 = 6;
+  var cols = [{ h: 'Origen', w: 17, g: 'ruta', tipo: 'auto' }, { h: 'Destino', w: 17, g: 'ruta', tipo: 'auto' }, { h: 'Aerolínea', w: 17, g: 'ruta' }, { h: 'Tránsito (días)', w: 8, g: 'ruta', num: true },
+    { h: 'Mínimo', w: 8, g: 'tarifa', num: true, fmt: '0.00', nota: 'Cargo mínimo en USD.' }]
+    .concat(A().breaks.map(function (b) { return { h: b + ' kg', w: 7, g: 'tarifa', num: true, fmt: '0.00', tipo: b === 45 ? 'opt' : 'req', nota: b === 45 ? 'Opcional.' : b === 100 ? 'USD por kg. Valores propios de cada ruta, no calculados a partir de otra.' : '' }; }))
+    .concat([{ h: 'Fuel USD/kg', w: 8, g: 'rec', num: true, fmt: '0.00' }, { h: 'IMO USD/kg', w: 9, g: 'rec', nota: 'Número, o escribí "A pedido": no se suma al all-in.' },
+      { h: 'Gastos destino USD', w: 10, g: 'obs', num: true }, { h: 'Observaciones', w: 22, g: 'obs', tipo: 'opt' }, { h: 'Control', w: 28, g: 'ctrl', control: true }]);
+  var filas = R.map(function (r, i) {
+    var base = [r.origen, r.destino];
+    if (!ejemplo) return base.concat(cols.slice(2).map(function () { return ''; }));
+    var k = i === 0 ? 1 : 2.9 + i * 0.1;
+    return base.concat(['Aerolínea Demo ' + (i % 2 + 1), 2 + i * 2, 150 + i * 20, '', +(3.6 * k).toFixed(2), +(3.4 * k).toFixed(2), +(3.15 * k).toFixed(2), +(2.95 * k).toFixed(2), 0.15, i % 2 ? 'A pedido' : 0.05, 340, 'Ejemplo ficticio', '']);
+  });
+  var conceptos = A().conceptos.concat(['', '']);
+  var ejG = { 'Pick up': 70, 'Export customs': 50, 'Handling': 55, 'Documentation': 60, 'Warehouse': '0,12 x kg min 50', 'Security': '0,10 x kg min 30' };
+  var gcols = [{ h: 'Concepto', w: 22, g: 'gasto', nota: 'Si cobrás otro concepto, escribilo en una fila amarilla vacía.' }].concat(R.map(function (r) { return { h: r.origen, w: 17, g: 'monto', tipo: 'req', nota: 'Número = fijo por embarque. Por kg: "0,12 x kg min 50". Sin valor: "A pedido".' }; }));
+  var gfilas = conceptos.map(function (c) { return [c].concat(R.map(function () { return ejemplo && c ? ejG[c] : ''; })); });
+  var C = function (h) { return letraXL(cols.map(function (c) { return c.h; }).indexOf(h) + 1); }, g0 = F0, g1 = F0 + gfilas.length - 1;
+  var controlTar = function (r) {
+    var k = r - F0, gc = letraXL(2 + k), rr = function (h) { return C(h) + r; };
+    return 'IF(' + rr('Aerolínea') + '="","Sin cotizar",IF(OR(' + rr('Tránsito (días)') + '="",' + rr('Mínimo') + '=""),"Falta: tránsito o mínimo",' +
+      'IF(COUNT(' + rr('100 kg') + ':' + rr('1000 kg') + ')<4,"Falta: breaks de 100 a 1000 kg",IF(OR(' + rr('Fuel USD/kg') + '="",' + rr('IMO USD/kg') + '="",' + rr('Gastos destino USD') + '=""),"Falta: fuel, IMO o gastos destino",' +
+      'IF(COUNTA(\'Gastos en origen\'!' + gc + g0 + ':' + gc + g1 + ')=0,"Falta: gastos en origen","Completa")))))';
+  };
+  var controlGastos = function (j) { var col = letraXL(j), rf = F0 + (j - 2);
+    return 'IF(Tarifario!' + C('Aerolínea') + rf + '="","",IF(COUNTA(' + col + g0 + ':' + col + g1 + ')=0,"Falta","Completa"))'; };
+  return { nombre: 'BIDCOM_Tarifario_Aereo_' + (ejemplo ? 'EJEMPLO' : 'MODELO') + '.xlsx',
+    instrucciones: { titulo: 'Tarifario aéreo BIDCOM', subtitulo: ejemplo ? 'EJEMPLO COMPLETO (datos ficticios): así queda bien cargado. Para cotizar, usá el MODELO.' : 'MODELO para completar. Cuando termines, subilo en tu link de BIDCOM.',
+      importante: A().notas.length ? A().notas : ['Completá los gastos en origen de cada aeropuerto, concepto por concepto.'],
+      pasos: ['Arriba de la solapa Tarifario completá Vigencia desde y Vigencia hasta: 1 semana, 15 días o 1 mes.',
+        'Tarifario: las rutas grises son las que pide BIDCOM. Completá aerolínea, tránsito, mínimo y la tarifa por kg de cada break (45 kg es opcional).',
+        'Fuel e IMO en USD por kg. Si el IMO es a pedido, escribí "A pedido".',
+        'Gastos en origen: una columna por aeropuerto. Número = fijo por embarque. Por kg con mínimo: "0,12 x kg min 50". Si no tenés el valor: "A pedido".',
+        'Revisá la columna Control del Tarifario y la fila Control de Gastos en origen: tienen que quedar en verde.'],
+      final: 'Guardá el archivo, entrá a tu link personal de BIDCOM, tocá "Subir Excel", revisá el formulario y enviá. Antes de enviar ves todo lo que se cargó y lo que falta.' },
+    hojas: [
+      { nombre: 'Tarifario', titulo: 'Tarifario aéreo · una fila por ruta (USD por kg)', ayuda: 'Amarillo: obligatorio. Celeste: opcional. Gris: lo completa BIDCOM. Mínimo y breaks con valores propios de cada ruta. La columna Control te dice qué falta.',
+        vigencia: ejemplo ? [hoy, sumarDias(hoy, 6)] : ['', ''], cols: cols, filas: filas, congelar: 2, controlFila: controlTar, color: 'tarifa' },
+      { nombre: 'Gastos en origen', titulo: 'Gastos en origen · un concepto por fila, una columna por aeropuerto (USD)', ayuda: 'IMPORTANTE: base de la negociación de gastos en origen. Número = fijo por embarque · "0,12 x kg min 50" = por kg con mínimo · "A pedido" si no tenés el valor.',
+        cols: gcols, filas: gfilas, congelar: 1, gasto: true, controlCol: controlGastos, desdeCol: 2, color: 'gasto' }],
+    listas: {} };
+}
+function descargarExcel(p, ejemplo) {
+  var s = p === 'm' ? specMar(ejemplo) : specAir(ejemplo), msg = document.getElementById(p + 'xlmsg');
+  var bajar = function (data) {
+    var blob = new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = s.nombre; document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+    if (msg) msg.textContent = 'Descargado: ' + s.nombre;
+  };
+  try {
+    if (typeof ExcelJS !== 'undefined') { libroConFormato(s).xlsx.writeBuffer().then(bajar).catch(function () { bajar(libroSimple(s)); }); return; }
+    if (typeof XLSX !== 'undefined') { bajar(libroSimple(s)); return; }
+  } catch (e) { /* sigue abajo */ }
+  if (msg) msg.textContent = 'No se pudo generar el archivo. Revisá tu conexión y recargá la página.';
+}
+// Sin formato (si no cargó la librería de estilos): mismas filas y encabezados, para que se pueda subir igual
+function libroSimple(s) {
+  var wb = XLSX.utils.book_new(), I = s.instrucciones;
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([[I.titulo], [I.subtitulo], [], ['LO IMPORTANTE']].concat(I.importante.map(function (t) { return ['• ' + t]; }))
+    .concat([[], ['CÓMO COMPLETAR']]).concat(I.pasos.map(function (t, i) { return [(i + 1) + '. ' + t]; })).concat([[], ['AL TERMINAR'], [I.final]])), 'Instrucciones');
+  s.hojas.forEach(function (h) {
+    var aoa = [[h.titulo], [h.ayuda]].concat(h.vigencia ? [['Vigencia desde', '', h.vigencia[0], 'Vigencia hasta', h.vigencia[1]]] : [[]]).concat([[], h.cols.map(function (c) { return c.h; })]).concat(h.filas);
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), h.nombre);
+  });
+  return XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+}
+function libroConFormato(s) {
+  var wb = new ExcelJS.Workbook(), G = XC.grupos;
+  var fill = function (h) { return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + h } }; };
+  var borde = function () { var b = { style: 'thin', color: { argb: 'FF' + XC.borde } }; return { top: b, left: b, bottom: b, right: b }; };
+  var fuente = function (o) { return Object.assign({ name: 'Arial', size: 10, color: { argb: 'FF' + XC.tinta } }, o || {}); };
+  var blanco = { argb: 'FFFFFFFF' };
+  wb.creator = 'BIDCOM';
+  // ----- Instrucciones -----
+  var I = s.instrucciones, wi = wb.addWorksheet('Instrucciones', { properties: { tabColor: { argb: 'FF' + XC.titulo } }, views: [{ showGridLines: false }],
+    pageSetup: { orientation: 'portrait', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+  wi.columns = [{ width: 5 }, { width: 112 }];
+  var r = 1;
+  var linea = function (texto, o) {
+    o = o || {}; wi.mergeCells('A' + r + ':B' + r); var c = wi.getCell('A' + r); c.value = texto;
+    c.font = fuente({ size: o.size || 10, bold: !!o.bold, color: o.color ? { argb: 'FF' + o.color } : undefined }); if (o.fill) c.fill = fill(o.fill);
+    c.alignment = { vertical: 'middle', wrapText: true, indent: 1 }; wi.getRow(r).height = o.h || 18; r++;
+  };
+  var item = function (marca, texto, o) {
+    o = o || {}; var a = wi.getCell('A' + r), b = wi.getCell('B' + r); a.value = marca; b.value = texto;
+    [a, b].forEach(function (c) { c.font = fuente({ bold: !!o.bold, color: o.color ? { argb: 'FF' + o.color } : undefined }); if (o.fill) c.fill = fill(o.fill); c.alignment = { vertical: 'middle', wrapText: true }; });
+    a.alignment = { vertical: 'middle', horizontal: 'center' }; if (o.muestra) a.fill = fill(o.muestra);
+    wi.getRow(r).height = Math.max(20, Math.ceil(String(texto).length / 105) * 14 + 8); r++;
+  };
+  var seccion = function (t) { r++; linea(t, { bold: true, size: 11, color: XC.titulo, h: 20 }); };
+  linea(I.titulo, { size: 15, bold: true, color: 'FFFFFF', fill: XC.titulo, h: 32 });
+  linea(I.subtitulo, { fill: 'DAE3F3', h: 22 });
+  seccion('LO IMPORTANTE');
+  I.importante.forEach(function (t, i) { item(i === 0 ? '!' : '•', t, i === 0 ? { bold: true, fill: G.gasto[1], color: '6B4500' } : {}); });
+  seccion('CÓMO COMPLETAR');
+  I.pasos.forEach(function (t, i) { item(String(i + 1), t); });
+  seccion('QUÉ SIGNIFICA CADA COLOR');
+  COLORES_XL.forEach(function (c) { item('', c[1], { muestra: XC[c[0]] || c[0] }); });
+  seccion('AL TERMINAR');
+  item('✓', I.final, { bold: true, color: '1D7A46' });
+  // ----- Listas (oculta) -----
+  var refs = {}, nombres = Object.keys(s.listas);
+  if (nombres.length) {
+    var wl = wb.addWorksheet('Listas'); wl.state = 'hidden';
+    nombres.forEach(function (n, j) { wl.getCell(1, j + 1).value = n; s.listas[n].forEach(function (v, k) { wl.getCell(k + 2, j + 1).value = v; });
+      refs[n] = 'Listas!$' + letraXL(j + 1) + '$2:$' + letraXL(j + 1) + '$' + Math.max(2, s.listas[n].length + 1); });
+  }
+  // ----- Hojas de datos -----
+  s.hojas.forEach(function (h) {
+    var n = h.cols.length, ult = letraXL(n), F0 = 6, F1 = 5 + h.filas.length, filaCtrl = h.controlCol ? F1 + 1 : 0;
+    var ws = wb.addWorksheet(h.nombre, { properties: { tabColor: { argb: 'FF' + G[h.color][0] } }, views: [{ state: 'frozen', xSplit: h.congelar || 0, ySplit: 5 }],
+      pageSetup: { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, printTitlesRow: '4:5' } });
+    ws.columns = h.cols.map(function (c) { return { width: c.w || 12 }; });
+    ws.mergeCells('A1:' + ult + '1'); ws.getCell('A1').value = h.titulo;
+    ws.getCell('A1').font = fuente({ size: 14, bold: true, color: blanco }); ws.getCell('A1').fill = fill(XC.titulo); ws.getCell('A1').alignment = { vertical: 'middle', indent: 1 }; ws.getRow(1).height = 28;
+    ws.mergeCells('A2:' + ult + '2'); ws.getCell('A2').value = h.ayuda;
+    ws.getCell('A2').font = fuente({ color: { argb: 'FF' + XC.ayudaTx } }); ws.getCell('A2').fill = fill(XC.ayuda); ws.getCell('A2').alignment = { wrapText: true, vertical: 'middle', indent: 1 }; ws.getRow(2).height = 32;
+    // Fila 3: vigencia
+    if (h.vigencia) {
+      [[1, 2, 'Vigencia desde'], [4, 4, 'Vigencia hasta']].forEach(function (x) {
+        if (x[1] > x[0]) ws.mergeCells(3, x[0], 3, x[1]);
+        var c = ws.getCell(3, x[0]); c.value = x[2]; c.font = fuente({ bold: true, color: blanco }); c.fill = fill(G.vig[0]); c.alignment = { horizontal: 'center', vertical: 'middle' };
+      });
+      [[3, 12], [4, 15], [5, 12]].forEach(function (x) { ws.getColumn(x[0]).width = Math.max(ws.getColumn(x[0]).width || 0, x[1]); });
+      [[3, h.vigencia[0]], [5, h.vigencia[1]]].forEach(function (x) {
+        var c = ws.getCell(3, x[0]); if (x[1]) c.value = diasEntre('1899-12-30', x[1]); c.numFmt = 'dd/mm/yyyy'; c.fill = fill(XC.req); c.border = borde(); c.font = fuente({ bold: true }); c.alignment = { horizontal: 'center' };
+        c.note = 'Fecha dd/mm/aaaa.';
+        ws.dataValidations.add(letraXL(x[0]) + '3', { type: 'date', operator: 'greaterThan', allowBlank: true, formulae: [43831], showErrorMessage: true, errorTitle: 'Fecha', error: 'Escribí la fecha como dd/mm/aaaa.' });
+      });
+      ws.getCell(3, 6).value = '← 1 semana, 15 días o 1 mes'; ws.getCell(3, 6).font = fuente({ italic: true, color: { argb: 'FF5B6876' } });
+      ws.getRow(3).height = 22;
+    }
+    // Fila 4: bandas de grupo
+    var etiquetas = { ruta: h.gasto ? '' : 'RUTA Y SERVICIO', tarifa: 'TARIFA USD POR KG', rec: s.hojas[0] === h && h.cols.some(function (c) { return c.h === 'Locales ARG USD'; }) ? 'LOCALES ARG Y RECARGOS' : 'RECARGOS',
+      obs: 'OTROS', ctrl: 'CONTROL', gasto: 'QUÉ SE COBRA', monto: h.desdeCol === 3 ? 'IMPORTE USD POR RUTA' : 'IMPORTE POR AEROPUERTO' };
+    var c0 = 1;
+    while (c0 <= n) {
+      var col = h.cols[c0 - 1], clave = col.banda || col.g, c1 = c0;
+      while (c1 < n && (h.cols[c1].banda || h.cols[c1].g) === clave) c1++;
+      if (c1 > c0) ws.mergeCells(4, c0, 4, c1);
+      var cb = ws.getCell(4, c0); cb.value = col.banda ? 'CONTENEDOR ' + col.banda : (etiquetas[col.g] || '');
+      cb.font = fuente({ bold: true, color: blanco }); cb.fill = fill(G[col.g][0]); cb.alignment = { horizontal: 'center', vertical: 'middle' };
+      c0 = c1 + 1;
+    }
+    ws.getRow(4).height = 20;
+    // Fila 5: encabezados (son los nombres que lee el formulario al subir el archivo)
+    h.cols.forEach(function (c, i) {
+      var cell = ws.getCell(5, i + 1); cell.value = c.h; if (c.nota) cell.note = c.nota;
+      cell.font = fuente({ bold: true }); cell.fill = fill(G[c.encG || c.g][1]); cell.border = borde(); cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    });
+    ws.getRow(5).height = 40;
+    // Filas de datos
+    h.filas.forEach(function (f, k) {
+      var fila = F0 + k;
+      h.cols.forEach(function (c, i) {
+        var cell = ws.getCell(fila, i + 1), v = f[i];
+        if (c.control && h.controlFila) cell.value = { formula: h.controlFila(fila) };
+        else if (v !== '' && v !== undefined && v !== null) cell.value = v;
+        var gris = c.control || c.tipo === 'auto' || (h.gasto && i === 0 && v);
+        cell.fill = fill(gris ? XC.auto : XC[c.tipo || 'req']); cell.border = borde();
+        cell.font = fuente({ bold: (c.tipo === 'auto' && i === 0) || c.control });
+        if (c.fmt) cell.numFmt = c.fmt;
+        cell.alignment = { vertical: 'middle', horizontal: c.centro ? 'center' : c.num ? 'right' : 'left', wrapText: !!c.control };
+      });
+      ws.getRow(fila).height = 18;
+    });
+    // Fila de control al pie (gastos en origen)
+    if (filaCtrl) {
+      var cc = ws.getCell(filaCtrl, 1); cc.value = 'Control'; cc.font = fuente({ bold: true, color: blanco }); cc.fill = fill(G.ctrl[0]); cc.border = borde();
+      for (var j = 2; j <= n; j++) {
+        var cx = ws.getCell(filaCtrl, j); cx.fill = fill(G.ctrl[1]); cx.border = borde(); cx.font = fuente({ bold: true, size: 9 }); cx.alignment = { horizontal: 'center', wrapText: true };
+        if (j >= h.desdeCol) cx.value = { formula: h.controlCol(j) };
+      }
+      ws.getRow(filaCtrl).height = 26;
+    }
+    // Listas desplegables y números
+    h.cols.forEach(function (c, i) {
+      var rango = letraXL(i + 1) + F0 + ':' + letraXL(i + 1) + F1;
+      if (c.lista && refs[c.lista]) ws.dataValidations.add(rango, { type: 'list', allowBlank: true, formulae: [refs[c.lista]], showErrorMessage: true, errorStyle: 'warning', errorTitle: 'Fuera de la lista', error: 'No está en la lista. Si es correcto, aceptá igual.' });
+      else if (c.num) ws.dataValidations.add(rango, { type: 'decimal', operator: 'greaterThanOrEqual', allowBlank: true, formulae: [0], showErrorMessage: true, errorTitle: 'Número', error: 'Escribí solo el número, sin USD ni otros textos.' });
+    });
+    // Semáforo del control
+    var refCtrl = h.controlFila ? (function () { var i = h.cols.findIndex(function (c) { return c.control; }); return letraXL(i + 1) + F0 + ':' + letraXL(i + 1) + F1; })()
+      : filaCtrl ? letraXL(h.desdeCol) + filaCtrl + ':' + ult + filaCtrl : '';
+    if (refCtrl) {
+      var celda0 = refCtrl.split(':')[0];
+      var regla = function (txt, p, bg, fg) { return { type: 'expression', priority: p, stopIfTrue: true, formulae: ['ISNUMBER(SEARCH("' + txt + '",' + celda0 + '))'],
+        style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: 'FF' + bg } }, font: { color: { argb: 'FF' + fg }, bold: true } } }; };
+      ws.addConditionalFormatting({ ref: refCtrl, rules: [regla('Falta', 1, 'FFC7CE', '9C0006'), regla('Revisar', 2, 'FFEB9C', '9C5700'), regla('Completa', 3, 'C6EFCE', '006100'), regla('Sin cotizar', 4, 'EDEDED', '595959')] });
+    }
+  });
+  wb.views = [{ activeTab: 0 }];
+  return wb;
+}
+
+render();
+</script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+</body>
+</html>
