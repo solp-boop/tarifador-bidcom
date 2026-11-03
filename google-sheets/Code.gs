@@ -61,7 +61,9 @@ var AJ = [
   ['airIni', 'Pestaña tarifas iniciales (aéreo)', 'Cotizaciones Aereos SIN NEGOCIAR', 'Nombre exacto de la pestaña de la base madre. Vacío = el aéreo queda solo en TARIFADOR Cotizaciones.'],
   ['airNeg', 'Pestaña tarifas negociadas (aéreo)', 'Cotizaciones Aereos Negociado', 'La tarifa aérea que el agente manda después de un pedido de mejora.'],
   ['imoTexto', 'IMO a pedido se escribe como', 'Upon RQST', ''],
-  ['peso', 'Peso de referencia (kg)', 500, 'Para calcular el all-in USD/kg. No cambiarlo seguido: deja de ser comparable.']
+  ['peso', 'Peso de referencia (kg)', 500, 'Para calcular el all-in USD/kg. No cambiarlo seguido: deja de ser comparable.'],
+  ['LINK'],
+  ['formUrl', 'Link del formulario (aplicación web)', '', 'La URL /exec de Implementar > Gestionar implementaciones. Vacío = la que informa Google. Con esta se arman los links de los agentes.']
 ];
 var COLS_AGENTES = ['Código', 'Nombre del agente (FFWW)', 'Email del agente', 'Activo (SI/NO)', 'Clave (automática)', 'Link personal (automático)', 'Contacto (columna Agente de la base)'];
 var LISTAS_DEF = [
@@ -199,6 +201,7 @@ function armarAjustes(sh) {
 
 function armarCotizaciones(sh) {
   var n = CZ.length;
+  if (sh.getMaxColumns() < n) sh.insertColumnsAfter(sh.getMaxColumns(), n - sh.getMaxColumns());
   sh.getRange(1, 1, 1, n).setValues([CZ.map(function (c) { return c[1]; })]);
   estiloEncabezado(sh, n);
   sh.setFrozenColumns(4);
@@ -322,7 +325,7 @@ function leerAjustes() {
     reduccion: red, mostrarTarget: String(v.mostrarTarget).trim().toUpperCase() !== 'NO', diasAviso: num(v.diasAviso) >= 0 && v.diasAviso !== '' ? num(v.diasAviso) : 5,
     baseUrl: String(v.baseUrl || '').trim(), auto: String(v.auto).trim().toUpperCase() !== 'NO',
     marIni: String(v.marIni || '').trim(), marNeg: String(v.marNeg || '').trim(), locales: num(v.locales) || 800,
-    airIni: String(v.airIni || '').trim(), airNeg: String(v.airNeg || '').trim(), imoTexto: String(v.imoTexto || '').trim() || 'Upon RQST', peso: num(v.peso) || 500
+    formUrl: String(v.formUrl || '').trim(), airIni: String(v.airIni || '').trim(), airNeg: String(v.airNeg || '').trim(), imoTexto: String(v.imoTexto || '').trim() || 'Upon RQST', peso: num(v.peso) || 500
   };
   var A = BLOQUE.AGENTES - 1;
   cfg.agentes = [];
@@ -359,7 +362,7 @@ function registrar(quien, accion, detalle) {
 /* Links personales                                                    */
 /* ------------------------------------------------------------------ */
 function generarLinks() {
-  var ui = SpreadsheetApp.getUi(), url = ScriptApp.getService().getUrl();
+  var ui = SpreadsheetApp.getUi(), url = urlFormulario();
   if (!url) { ui.alert('Primero implementá el formulario como aplicación web (Implementar > Nueva implementación). Después volvé a usar esta opción.'); return; }
   var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(HOJA.AJUSTES), cfg = leerAjustes(), nuevos = 0;
   cfg.agentes.forEach(function (a) {
@@ -371,7 +374,9 @@ function generarLinks() {
   registrar('BIDCOM', 'Generó links', nuevos + ' clave(s) nueva(s)');
   ui.alert('Listo. Cada agente tiene su link en la columna "Link personal" de "' + HOJA.AJUSTES + '".\n\nMandale a cada uno SOLO su link. Para dar de baja a un agente, poné NO en Activo.');
 }
-function linkDe(a) { return a.link || (ScriptApp.getService().getUrl() + '?k=' + a.clave); }
+function linkDe(a) { return a.link || (urlFormulario() + '?k=' + a.clave); }
+// URL pública del formulario: la de Ajustes, o la que informa Google sin el tramo del dominio (/a/<dominio>/), que a los agentes externos les pide iniciar sesión
+function urlFormulario() { var u = leerAjustes().formUrl || ScriptApp.getService().getUrl() || ''; return u.replace(/\/a\/(macros\/)?[^\/]+\/(macros\/)?s\//, '/macros/s/').replace(/\?.*$/, ''); }
 function irACotizaciones() { var ss = SpreadsheetApp.getActiveSpreadsheet(), c = ss.getSheetByName(HOJA.COTIZ); if (c) ss.setActiveSheet(c); }
 
 /* ------------------------------------------------------------------ */
