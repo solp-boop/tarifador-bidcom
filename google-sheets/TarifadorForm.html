@@ -622,7 +622,7 @@ function leerExcelMar(wb) {
     if (e2 && e2.cols.flete !== undefined && e2.cols.ctnr !== undefined) { hojaF = { g: g, e: e2, n: n }; tipo = 'actual'; }
     else if (e1 && e1.cols.pol !== undefined && MR().contenedores.some(function (c) { return e1.cols['f' + c] !== undefined; })) { hojaF = { g: g, e: e1, n: n }; tipo = 'modelo'; }
   });
-  if (!hojaF) return { error: 'No encontré la hoja de fletes. Usá el modelo de BIDCOM o tu Excel de siempre (con columnas POL, Valor Flete y Tipo Ctnr).' };
+  if (!hojaF) return { error: 'No encontré la hoja de fletes. Usá el template de BIDCOM o tu Excel de siempre (con columnas POL, Valor Flete y Tipo Ctnr).' };
   var g = hojaF.g, C = hojaF.e.cols, v = function (r, k) { return C[k] === undefined ? '' : r[C[k]]; }, vig = vigenciaDeLibro(wb);
   var base = function (r) {
     var tb = v(r, 'transbordo'), sv = normT(v(r, 'servicio'));
@@ -694,7 +694,7 @@ function leerExcelAir(wb) {
     var g = grilla(wb.Sheets[n]), e = encabezados(g, MAPA_AIR);
     if (e && e.cols.origen !== undefined && (e.cols.r500 !== undefined || e.cols.minimo !== undefined)) hoja = { g: g, e: e, n: n };
   });
-  if (!hoja) return { error: 'No encontré la hoja del tarifario (con columnas Origen, Mínimo y tarifas por kg). Usá el modelo de BIDCOM o tu Excel de siempre.' };
+  if (!hoja) return { error: 'No encontré la hoja del tarifario (con columnas Origen, Mínimo y tarifas por kg). Usá el template de BIDCOM o tu Excel de siempre.' };
   var g = hoja.g, C = hoja.e.cols, v = function (r, k) { return C[k] === undefined ? '' : r[C[k]]; }, vig = vigenciaDeLibro(wb), filas = {};
   for (var i = hoja.e.fila + 1; i < g.length; i++) {
     var r = g[i], o = String(v(r, 'origen')).trim(); if (!o) continue;
@@ -775,8 +775,8 @@ function excelHTML(p) {
   var R = XLI[p], mar = p === 'm';
   return '<section class="panel"><h2>¿Cómo querés cargar?</h2><div class="formas">' +
     '<div class="forma"><b>A mano</b><p class="small muted">Completá el formulario de abajo.</p></div>' +
-    '<div class="forma"><b>Con tu Excel</b><p class="small muted">Descargá el modelo (y mirá el ejemplo), completalo y subilo: el formulario se completa solo, lo revisás y enviás. También podés subir tu Excel de siempre.</p>' +
-    '<div class="acciones"><button type="button" class="btn" data-' + p + 'xl="modelo">Descargar modelo</button><button type="button" class="btn" data-' + p + 'xl="ejemplo">Descargar ejemplo</button>' +
+    '<div class="forma"><b>Con tu Excel</b><p class="small muted">Descargá el template (el archivo vacío para completar) y mirá el ejemplo ya completado. Completá el template y subilo: el formulario se completa solo, lo revisás y enviás. También podés subir tu Excel de siempre.</p>' +
+    '<div class="acciones"><button type="button" class="btn" data-' + p + 'xl="modelo">Descargar template</button><button type="button" class="btn" data-' + p + 'xl="ejemplo">Descargar ejemplo</button>' +
     '<label class="btn subir">Subir Excel<input type="file" accept=".xlsx,.xls,.xlsm" data-' + p + 'subir hidden></label></div></div></div>' +
     (R ? '<div id="' + p + 'xlres" style="margin-top:12px">' + (R.error ? '<div class="alert bad"><b>' + esc(R.archivo || 'Archivo') + ':</b> ' + esc(R.error) + '</div>'
       : '<div class="alert ' + (R.avisos.length ? 'warn' : 'ok') + '"><b>Cargamos ' + esc(R.resumen) + ' de "' + esc(R.archivo) + '".</b> Revisá el formulario (lo que falta queda en rojo) y enviá.' +
@@ -836,8 +836,8 @@ function specMar(ejemplo) {
   };
   var controlGastos = function (j) { var col = letraXL(j), rf = F0 + (j - 3);
     return 'IF(AND(Fletes!' + C('POL') + rf + '="",COUNT(' + col + g0 + ':' + col + g1 + ')=0),"",IF(Fletes!' + C('POL') + rf + '="","Revisar: ruta sin flete",IF(COUNT(' + col + g0 + ':' + col + g1 + ')=0,"Falta","Completa")))'; };
-  return { nombre: 'BIDCOM_Cotizacion_Maritima_' + (ejemplo ? 'EJEMPLO' : 'MODELO') + '.xlsx',
-    instrucciones: { titulo: 'Cotización marítima BIDCOM', subtitulo: ejemplo ? 'EJEMPLO COMPLETO (datos ficticios): así queda bien cargado. Para cotizar, usá el MODELO.' : 'MODELO para completar. Cuando termines, subilo en tu link de BIDCOM.',
+  return { nombre: 'BIDCOM_Cotizacion_Maritima_' + (ejemplo ? 'EJEMPLO' : 'TEMPLATE') + '.xlsx',
+    instrucciones: { titulo: 'Cotización marítima BIDCOM', subtitulo: ejemplo ? 'EJEMPLO COMPLETO (datos ficticios): así queda bien cargado. Para cotizar, usá el TEMPLATE (archivo vacío).' : 'MODELO para completar. Cuando termines, subilo en tu link de BIDCOM.',
       importante: ['Gastos en origen: completalos en la solapa "Gastos en origen", concepto por concepto y por ruta. No envíes un total sin desglose: BIDCOM los usa como base para una negociación específica de gastos en origen.',
         'Locales ARG: el valor aceptado por BIDCOM es USD ' + acept + '. Recarga IMO, Fuel adjust y Adicional puertos internos van cada uno en su columna, en USD.',
         'Contenedores: 20ST, 40ST/40HQ (un solo valor para los dos) y 40NOR, cada uno con su valor y sus días libres.',
@@ -882,8 +882,8 @@ function specAir(ejemplo) {
   };
   var controlGastos = function (j) { var col = letraXL(j), rf = F0 + (j - 2);
     return 'IF(Tarifario!' + C('Aerolínea') + rf + '="","",IF(COUNTA(' + col + g0 + ':' + col + g1 + ')=0,"Falta","Completa"))'; };
-  return { nombre: 'BIDCOM_Tarifario_Aereo_' + (ejemplo ? 'EJEMPLO' : 'MODELO') + '.xlsx',
-    instrucciones: { titulo: 'Tarifario aéreo BIDCOM', subtitulo: ejemplo ? 'EJEMPLO COMPLETO (datos ficticios): así queda bien cargado. Para cotizar, usá el MODELO.' : 'MODELO para completar. Cuando termines, subilo en tu link de BIDCOM.',
+  return { nombre: 'BIDCOM_Tarifario_Aereo_' + (ejemplo ? 'EJEMPLO' : 'TEMPLATE') + '.xlsx',
+    instrucciones: { titulo: 'Tarifario aéreo BIDCOM', subtitulo: ejemplo ? 'EJEMPLO COMPLETO (datos ficticios): así queda bien cargado. Para cotizar, usá el TEMPLATE (archivo vacío).' : 'MODELO para completar. Cuando termines, subilo en tu link de BIDCOM.',
       importante: A().notas.length ? A().notas : ['Completá los gastos en origen de cada aeropuerto, concepto por concepto.'],
       pasos: ['Arriba de la solapa Tarifario completá Vigencia desde y Vigencia hasta: 1 semana, 15 días o 1 mes.',
         'Tarifario: las rutas grises son las que pide BIDCOM. Completá aerolínea, tránsito, mínimo y la tarifa por kg de cada break (45 kg es opcional).',
