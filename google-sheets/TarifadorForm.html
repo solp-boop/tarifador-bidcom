@@ -160,7 +160,7 @@ function pedidosHTML(m) {
   var ps = pedidosDe(m); if (!ps.length) return '';
   var mar = m === 'mar';
   return '<section class="panel"><div class="alert info"><h2 style="margin:0 0 6px">BIDCOM te pide mejorar estas tarifas</h2>' +
-    '<p class="small" style="margin:0 0 8px">Cargá los valores mejorados más abajo (ya está todo precargado) y enviá. ' + (mar ? 'Valor por contenedor = flete + Recarga IMO + Fuel adjust + Adicional puertos internos.' : 'Valor = all-in USD/kg a ' + D.air.peso + ' kg.') + '</p>' +
+    '<p class="small" style="margin:0 0 8px">Cargá los valores mejorados más abajo (ya está todo precargado) y enviá. ' + (mar ? 'Valor por contenedor = flete + Recarga IMO.' : 'Valor = all-in USD/kg a ' + D.air.peso + ' kg.') + '</p>' +
     '<div class="tablewrap"><table><thead><tr><th>Vigencia</th><th>Ruta</th><th>' + (mar ? 'Naviera' : 'Aerolínea') + '</th>' + (mar ? '<th>Contenedor</th>' : '') + '<th>Tu valor</th><th>Objetivo</th><th>Comentario</th></tr></thead><tbody>' +
     ps.map(function (p) { return '<tr><td>' + esc(fVig(p.desde, p.hasta)) + '</td><td>' + esc(p.origen + ' → ' + p.destino) + '</td><td>' + esc(p.carrier) + '</td>' + (mar ? '<td>' + esc(p.ctnr) + '</td>' : '') +
       '<td>USD ' + fmt(p.actual) + (mar ? '' : '/kg') + '</td><td>' + (p.objetivo !== '' ? '<b>USD ' + fmt(p.objetivo) + (mar ? '' : '/kg') + '</b>' : '<span class="muted">Tu mejor valor</span>') + '</td><td>' + esc(p.mensaje) + '</td></tr>'; }).join('') +
@@ -228,7 +228,7 @@ function gastosBase(prev) {
 }
 function rutaMarVacia(base) {
   return { pol: '', pod: base ? base.pod : ((MR().listas.pod || [])[0] || 'BUENOS AIRES'), naviera: '', servicio: 'DIRECTO', directo: true, transbordo: '', tt: '',
-    pagadero: base ? base.pagadero : 'COLLECT', contenedores: {}, localesArg: base ? base.localesArg : '', imo: '', fuel: '', puertos: '', comentarios: '',
+    pagadero: base ? base.pagadero : 'COLLECT', contenedores: {}, localesArg: base ? base.localesArg : '', imo: '', comentarios: '',
     gastos: base ? copia(base.gastos) : gastosBase(null) };
 }
 // Precarga: el envío de esta vigencia si existe; si no, el último envío como punto de partida
@@ -297,8 +297,6 @@ function mRutaHTML(r, i) {
     '<div class="grid">' +
       '<label>Locales ARG (USD)' + inp('localesArg', r.localesArg, isNaN(n(r.localesArg)), 'Locales ARG') + '<span data-mhint="' + i + '">' + mLocalesHint(r.localesArg) + '</span></label>' +
       '<label>Recarga IMO (USD)' + inp('imo', r.imo, false, 'Recarga IMO') + '</label>' +
-      '<label>Fuel adjust (USD)' + inp('fuel', r.fuel, false, 'Fuel adjust') + '</label>' +
-      '<label>Adicional puertos internos (USD)' + inp('puertos', r.puertos, false, 'Adicional puertos internos') + '</label>' +
     '</div>' +
     '<div class="origin" style="border:1px solid var(--warn);border-radius:8px;padding:12px"><h3>Gastos en origen <span class="badge">Importante</span></h3>' +
       '<p class="small muted" style="margin:4px 0 8px">Un importe por concepto, con su unidad. Dejá vacío lo que no aplica. No envíes un total sin desglose.</p>' +
@@ -319,7 +317,7 @@ function renderMar() {
   if (mPrecarga) html += '<p class="small muted" style="margin:-8px 0 0 4px">' + (mPrecarga === 'esta' ? 'Precargamos tu envío de esta vigencia: revisalo y enviá la nueva versión.' : 'Precargamos tu última cotización como punto de partida: actualizá lo que cambió.') + '</p>';
   html += '<section class="panel"><h2>Lo importante</h2><div class="alert warn"><b>Gastos en origen.</b> Completalos concepto por concepto, con su unidad de cobro. BIDCOM los usa como base para una negociación específica de gastos en origen.</div>' +
     '<ul class="notes"><li>Locales ARG: el valor aceptado por BIDCOM es USD ' + fmt(MR().localesAceptado) + '.</li>' +
-    '<li>Cotizá cada contenedor con su valor y sus días libres.</li><li>Una naviera por ruta. Recarga IMO, Fuel adjust y Adicional puertos internos van cada uno en su campo, en USD.</li></ul></section>';
+    '<li>Cotizá cada contenedor con su valor y sus días libres.</li><li>Una naviera por ruta. La Recarga IMO, si aplica, va en su campo, en USD.</li></ul></section>';
   html += '<div class="layout"><div style="display:flex;flex-direction:column;gap:16px"><section class="panel"><h2>Rutas</h2><div style="display:flex;flex-direction:column;gap:12px">' + mForm.rutas.map(mRutaHTML).join('') + '</div>' +
     '<div style="margin-top:12px"><button type="button" class="btn" id="mmas">+ Agregar otra ruta</button></div></section></div>';
   html += '<aside class="panel"><h2>Antes de enviar</h2><div id="mcheck">' + checkHTML(errs) + '</div>' + motivoHTML('mmotivo', mMotivo, u, pedidosDe('mar', mVig.desde).length) +
@@ -606,12 +604,12 @@ function mapaMarModelo() {
     m.push(['f' + c, ['FLETE ' + c, c].concat(extra.map(function (x) { return 'FLETE ' + x; }))]);
     m.push(['d' + c, ['DIAS LIBRES ' + c].concat(extra.map(function (x) { return 'DIAS LIBRES ' + x; }))]);
   });
-  return m.concat([['locales', ['LOCALES ARG USD', 'LOCALES ARG', 'LOCALES']], ['imo', ['RECARGA IMO']], ['fuel', ['FUEL ADJUST']], ['puertos', ['ADICIONAL PUERTOS INTERNOS']], ['coment', ['COMENTARIOS', 'OBSERVACIONES']]]);
+  return m.concat([['locales', ['LOCALES ARG USD', 'LOCALES ARG', 'LOCALES']], ['imo', ['RECARGA IMO']], ['coment', ['COMENTARIOS', 'OBSERVACIONES']]]);
 }
 var MAPA_MAR_ACTUAL = [['flete', ['VALOR FLETE']], ['ctnr', ['TIPO CTNR', 'TIPO DE CONTENEDOR', 'CONTENEDOR']], ['pol', ['POL']], ['pod', ['POD']], ['naviera', ['LINEA', 'NAVIERA']],
   ['servicio', ['TIPO DE SERVICIO']], ['transbordo', ['TRANSBORDO']], ['tt', ['TT', 'TRANSIT TIME']], ['desde', ['VALIDEZ QUINCENA DESDE', 'VIGENCIA DESDE', 'VALIDEZ DESDE']],
   ['hasta', ['VALIDEZ QUINCENA HASTA', 'VIGENCIA HASTA', 'VALIDEZ HASTA']], ['dias', ['DIAS LIBRES']], ['pagadero', ['PAGADERO']], ['locales', ['LOCALES ARG', 'LOCALES']],
-  ['imo', ['RECARGA IMO']], ['fuel', ['FUEL ADJUST']], ['puertos', ['ADICIONAL PUERTOS INTERNOS']], ['coment', ['COMENTARIOS', 'OBSERVACIONES']]];
+  ['imo', ['RECARGA IMO']], ['coment', ['COMENTARIOS', 'OBSERVACIONES']]];
 function deLista(lista, v) { var t = normT(v); if (!t) return ''; var x = (lista || []).filter(function (o) { return normT(o) === t; })[0]; return x || String(v).trim(); }
 function directoDe(v) { var t = normT(v); return !t || t === 'NO' || t === 'DIRECTO' || t === 'DIRECT'; }
 function leerExcelMar(wb) {
@@ -630,7 +628,7 @@ function leerExcelMar(wb) {
     return { pol: deLista(L.pol, v(r, 'pol')), pod: deLista(L.pod, v(r, 'pod')) || ((L.pod || [])[0] || ''), naviera: deLista(L.naviera, v(r, 'naviera')),
       servicio: directo ? 'DIRECTO' : 'TRASBORDO', directo: directo, transbordo: directo || directoDe(tb) ? '' : deLista(L.pol, String(tb).replace(/^VIA\s+/i, '')),
       tt: numX(v(r, 'tt')), pagadero: /PREPAID/.test(normT(v(r, 'pagadero'))) ? 'PREPAID' : 'COLLECT', contenedores: {},
-      localesArg: numX(v(r, 'locales')), imo: numX(v(r, 'imo')), fuel: numX(v(r, 'fuel')), puertos: numX(v(r, 'puertos')), comentarios: String(v(r, 'coment') || '').trim(), gastos: [] };
+      localesArg: numX(v(r, 'locales')), imo: numX(v(r, 'imo')), comentarios: String(v(r, 'coment') || '').trim(), gastos: [] };
   };
   if (tipo === 'modelo') {
     for (var i = hojaF.e.fila + 1; i < g.length; i++) {
@@ -810,11 +808,11 @@ function specMar(ejemplo) {
     cols.push({ h: 'Días libres ' + c, w: 8, g: i % 2 ? 'c2' : 'c1', banda: c, num: true, tipo: 'opt', encG: 'dias' });
   });
   cols = cols.concat([{ h: 'Locales ARG USD', w: 10, g: 'rec', num: true, fmt: '#,##0', nota: 'Valor aceptado por BIDCOM: USD ' + acept + '.' },
-    { h: 'Recarga IMO USD', w: 9, g: 'rec', num: true, tipo: 'opt' }, { h: 'Fuel adjust USD', w: 9, g: 'rec', num: true, tipo: 'opt' },
-    { h: 'Adicional puertos internos USD', w: 11, g: 'rec', num: true, tipo: 'opt' }, { h: 'Comentarios', w: 24, g: 'obs', tipo: 'opt' }, { h: 'Control', w: 30, g: 'ctrl', control: true }]);
+    { h: 'Recarga IMO USD', w: 9, g: 'rec', num: true, tipo: 'opt' },
+    { h: 'Comentarios', w: 24, g: 'obs', tipo: 'opt' }, { h: 'Control', w: 30, g: 'ctrl', control: true }]);
   var ej = ejemplo ? [
-    [1, 'Ningbo', 'BUENOS AIRES', 'MSC', 'DIRECTO', '', 38, 'COLLECT', 2700, 14, 3700, 14, '', '', 800, '', 50, '', 'Ejemplo ficticio'],
-    [2, 'Shanghai', 'BUENOS AIRES', 'MAERSK', 'TRASBORDO', 'Singapore', 42, 'COLLECT', 2650, 21, 3650, 21, 3900, 21, 800, 35, 50, '', 'Ejemplo ficticio']] : [];
+    [1, 'Ningbo', 'BUENOS AIRES', 'MSC', 'DIRECTO', '', 38, 'COLLECT', 2700, 14, 3700, 14, '', '', 800, '', 'Ejemplo ficticio'],
+    [2, 'Shanghai', 'BUENOS AIRES', 'MAERSK', 'TRASBORDO', 'Singapore', 42, 'COLLECT', 2650, 21, 3650, 21, 3900, 21, 800, 35, 'Ejemplo ficticio']] : [];
   var filas = []; for (var i = 0; i < N; i++) filas.push(ej[i] || [i + 1]);
   filas = filas.map(function (f) { var x = f.slice(); while (x.length < cols.length) x.push(''); return x; });
   var conceptos = (L.conceptos || []).concat(['', '', '']);
@@ -839,7 +837,7 @@ function specMar(ejemplo) {
   return { nombre: 'BIDCOM_Cotizacion_Maritima_' + (ejemplo ? 'EJEMPLO' : 'TEMPLATE') + '.xlsx',
     instrucciones: { titulo: 'Cotización marítima BIDCOM', subtitulo: ejemplo ? 'EJEMPLO COMPLETO (datos ficticios): así queda bien cargado. Para cotizar, usá el TEMPLATE (archivo vacío).' : 'MODELO para completar. Cuando termines, subilo en tu link de BIDCOM.',
       importante: ['Gastos en origen: completalos en la solapa "Gastos en origen", concepto por concepto y por ruta. No envíes un total sin desglose: BIDCOM los usa como base para una negociación específica de gastos en origen.',
-        'Locales ARG: el valor aceptado por BIDCOM es USD ' + acept + '. Recarga IMO, Fuel adjust y Adicional puertos internos van cada uno en su columna, en USD.',
+        'Locales ARG: el valor aceptado por BIDCOM es USD ' + acept + '. La Recarga IMO, si aplica, va en su columna, en USD. No se aceptan Fuel adjust ni Adicional puertos internos.',
         'Contenedores: 20ST, 40ST/40HQ (un solo valor para los dos) y 40NOR, cada uno con su valor y sus días libres.',
         'Una naviera por ruta. Si un recargo no está incluido, indicalo en su columna o en Comentarios, no dentro del nombre de la naviera.'],
       pasos: ['Arriba de la solapa Fletes completá Vigencia desde y Vigencia hasta. Puede ser 1 semana, 15 días o 1 mes.',

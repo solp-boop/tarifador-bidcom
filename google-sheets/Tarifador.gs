@@ -224,7 +224,7 @@ var Tarifador = (function () {
     sh.getRange(col('historial') + '2:' + col('historial')).setWrap(false);
     sh.hideColumns(K.detalle + 1);
     sh.getRange(1, K.id + 1).setNote('Una fila por tarifa recibida (marítimo: ruta y contenedor; aéreo: ruta). Nunca se borra: cada envío queda con su versión. Última versión = SI es lo que vale hoy para ese agente y esa vigencia.');
-    sh.getRange(1, K.total + 1).setNote('Marítimo: USD por contenedor = flete + Recarga IMO + Fuel adjust + Adicional puertos internos (Locales ARG va aparte). Aéreo: all-in USD/kg al peso de referencia.');
+    sh.getRange(1, K.total + 1).setNote('Marítimo: USD por contenedor = flete + Recarga IMO (Locales ARG va aparte). Aéreo: all-in USD/kg al peso de referencia.');
     sh.getRange(1, K.menor + 1).setNote('Ronda = mismas rutas (y contenedor) con vigencias que se superponen. SI = cotizó la menor. "SI (única)" = es la única oferta.');
     sh.getRange(1, K.target + 1).setNote('Regla: a quien cotizó la menor se le pide la reducción de Ajustes (15%); al resto, igualar la menor. Podés escribir otro valor en "Target a pedir".');
     sh.getRange(1, K.semaforo + 1).setNote('Contra la mediana histórica × (1 − reducción). Verde ≤ objetivo · Amarillo hasta +5% · Naranja hasta +15% · Rojo más.');
@@ -568,7 +568,7 @@ var Tarifador = (function () {
       if (!conts.length) err.push(p + 'falta el flete de al menos un contenedor.');
       conts.forEach(function (c) { var d = r.contenedores[c].dias; if (d === '' || d === null || d === undefined || isNaN(num(d))) err.push(p + 'faltan los días libres de ' + c + '.'); });
       if (r.localesArg === '' || r.localesArg === null || r.localesArg === undefined || isNaN(num(r.localesArg))) err.push(p + 'faltan los Locales ARG.');
-      ['imo', 'fuel', 'puertos'].forEach(function (k) { if (r[k] !== '' && r[k] !== null && r[k] !== undefined && isNaN(num(r[k]))) err.push(p + 'valor inválido en ' + { imo: 'Recarga IMO', fuel: 'Fuel adjust', puertos: 'Adicional puertos internos' }[k] + '.'); });
+      ['imo'].forEach(function (k) { if (r[k] !== '' && r[k] !== null && r[k] !== undefined && isNaN(num(r[k]))) err.push(p + 'valor inválido en ' + { imo: 'Recarga IMO' }[k] + '.'); });
       var gastos = (r.gastos || []).filter(function (c) { return c.importe !== '' && c.importe !== null && c.importe !== undefined; });
       if (!gastos.length) err.push(p + 'faltan los gastos en origen desglosados.');
       gastos.forEach(function (c) {
@@ -623,7 +623,7 @@ var Tarifador = (function () {
       var gastos = (r.gastos || []).filter(function (c) { return c.importe !== '' && c.importe !== null && c.importe !== undefined; })
         .map(function (c) { return { concepto: c.concepto, importe: num(c.importe), unidad: c.unidad, descripcion: c.descripcion || '' }; });
       var rr = JSON.parse(JSON.stringify(r)); rr.gastos = gastos; rr.servicio = r.directo ? 'DIRECTO' : 'TRASBORDO';
-      var recargos = (num(r.imo) || 0) + (num(r.fuel) || 0) + (num(r.puertos) || 0);
+      var recargos = num(r.imo) || 0;
       CONTENEDORES.forEach(function (c) {
         var x = (r.contenedores || {})[c]; if (!x || !(num(x.flete) > 0)) return;
         out.push({ ruta: 'R' + (k + 1), r: rr, origen: r.pol, destino: r.pod, carrier: r.naviera, ctnr: c, flete: num(x.flete), dias: num(x.dias),
@@ -709,7 +709,7 @@ var Tarifador = (function () {
         var v = function (c) { return M[c] ? r[M[c] - 1] : ''; }, flete = num(v('flete'));
         if (!(flete > 0) || !(v('desde') instanceof Date)) return null;
         return { pol: claveTexto(v('pol')), pod: claveTexto(v('pod')), ctnr: tipoCtnr(v('ctnr')), desde: aDia(v('desde')),
-          valor: flete + (num(v('imo')) || 0) + (num(v('fuel')) || 0) + (num(v('puertos')) || 0) };
+          valor: flete + (num(v('imo')) || 0) };
       }).filter(Boolean);
     } catch (e) { return []; }
   }
@@ -764,7 +764,7 @@ var Tarifador = (function () {
           extra = numBase(v('destinoUsd'));
         } else {
           var flete = numBase(v('flete'));
-          precio = flete > 0 ? flete + (numBase(v('imo')) || 0) + (numBase(v('fuel')) || 0) + (numBase(v('puertos')) || 0) : NaN;
+          precio = flete > 0 ? flete + (numBase(v('imo')) || 0) : NaN;
           extra = numBase(v('locales'));
         }
         if (!(precio > 0)) return;
@@ -914,7 +914,7 @@ var Tarifador = (function () {
         return [f[K.origen] + ' → ' + f[K.destino], f[K.carrier]].concat(mar ? [f[K.ctnr]] : [])
           .concat([fechaCorta(f[K.desde]) + ' al ' + fechaCorta(f[K.hasta]), valorTxt(f[K.total], mar)])
           .concat(cfg.mostrarTarget ? [valorTxt(f[K.targetPedir], mar)] : []).concat([f[K.mensaje] || '']);
-      })) + '<p style="font-size:12px;color:#5b6876">' + (mar ? 'Valor por contenedor = flete + Recarga IMO + Fuel adjust + Adicional puertos internos.' : 'All-in USD/kg a ' + cfg.peso + ' kg = flete + fuel + IMO + gastos en origen + gastos de destino.') + '</p>';
+      })) + '<p style="font-size:12px;color:#5b6876">' + (mar ? 'Valor por contenedor = flete + Recarga IMO.' : 'All-in USD/kg a ' + cfg.peso + ' kg = flete + fuel + IMO + gastos en origen + gastos de destino.') + '</p>';
     });
     cuerpo += '<p>Cargá la tarifa mejorada desde tu link personal (el de siempre). Tu cotización aparece precargada: cambiá lo que mejores y enviá.</p>' + htmlBoton(linkDe(agente), 'Cargar tarifa mejorada');
     mandarMail({ to: agente.email, replyTo: cfg.teamMails[0] || '', subject: 'BIDCOM · Pedido de mejora de tarifas', html: htmlEnvolver(cuerpo) });
@@ -1043,7 +1043,7 @@ var Tarifador = (function () {
           // Como en el histórico: Tipo de Servicio = DIRECTO o TRASBORDO; Transbordo = el puerto (vacío si es directo)
           filas.push({ tipo: l.tipo, reemplazar: l.correccion || l.tipo === TIPOS.NEGOCIADA, transporte: 'Maritimo', ffww: agente.nombre, contacto: agente.contacto || agente.nombre,
             flete: l.flete, pol: r.pol, tt: num(r.tt), servicio: r.directo ? 'DIRECTO' : 'TRASBORDO', linea: r.naviera, pod: r.pod, transbordo: r.directo ? '' : r.transbordo, desde: desde, hasta: hasta,
-            dias: l.dias, pagadero: r.pagadero, locales: num(r.localesArg), ctnr: l.ctnr, coment: r.comentarios || '', imo: num(r.imo), fuel: num(r.fuel), puertos: num(r.puertos) });
+            dias: l.dias, pagadero: r.pagadero, locales: num(r.localesArg), ctnr: l.ctnr, coment: r.comentarios || '', imo: num(r.imo) });
         });
       });
       pegarMaritimo(filas, cfg);
@@ -1078,17 +1078,15 @@ var Tarifador = (function () {
     ['locales', ['LOCALES ARG', 'LOCALES'], true],
     ['ctnr', ['TIPO CTNR', 'TIPO DE CONTENEDOR', 'CONTENEDOR']],
     ['coment', ['COMENTARIOS', 'OBSERVACIONES']],
-    ['imo', ['RECARGA IMO', 'RECARGO IMO'], true],
-    ['fuel', ['FUEL ADJUST'], true],
-    ['puertos', ['ADICIONAL PUERTOS INTERNOS'], true]
+    ['imo', ['RECARGA IMO', 'RECARGO IMO'], true]
   ];
   var NOMBRE_CAMPO_MAR = { transporte: 'Tipo de transporte (Maritimo)', ffww: 'Empresa del agente', contacto: 'Contacto del agente', flete: 'Valor flete', pol: 'POL', tt: 'Transit time',
     servicio: 'Tipo de servicio (DIRECTO / TRASBORDO)', linea: 'Naviera', pod: 'POD', transbordo: 'Puerto de transbordo (vacío si es directo)', desde: 'Vigencia desde', hasta: 'Vigencia hasta',
-    dias: 'Días libres', pagadero: 'Pagadero', locales: 'Locales ARG', ctnr: 'Contenedor', coment: 'Comentarios', imo: 'Recarga IMO', fuel: 'Fuel adjust', puertos: 'Adicional puertos internos' };
+    dias: 'Días libres', pagadero: 'Pagadero', locales: 'Locales ARG', ctnr: 'Contenedor', coment: 'Comentarios', imo: 'Recarga IMO' };
 
   function valorMar(campo, f) {
     var v = f[campo];
-    if (['imo', 'fuel', 'puertos'].indexOf(campo) >= 0 && (v === '' || v === 0)) return '';
+    if (campo === 'imo' && (v === '' || v === 0)) return '';
     return v;
   }
   function clavePegado(v) { return v instanceof Date ? fecha(v) : claveTexto(v); }
