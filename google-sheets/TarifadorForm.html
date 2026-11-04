@@ -160,8 +160,8 @@ function pedidosHTML(m) {
   var ps = pedidosDe(m); if (!ps.length) return '';
   var mar = m === 'mar';
   return '<section class="panel"><div class="alert info"><h2 style="margin:0 0 6px">BIDCOM te pide mejorar estas tarifas</h2>' +
-    '<p class="small" style="margin:0 0 8px">Cargá los valores mejorados más abajo (ya está todo precargado) y enviá. ' + (mar ? 'Valor por contenedor = flete + Recarga IMO.' : 'Valor = all-in USD/kg a ' + D.air.peso + ' kg.') + '</p>' +
-    '<div class="tablewrap"><table><thead><tr><th>Vigencia</th><th>Ruta</th><th>' + (mar ? 'Naviera' : 'Aerolínea') + '</th>' + (mar ? '<th>Contenedor</th>' : '') + '<th>Tu valor</th><th>Objetivo</th><th>Comentario</th></tr></thead><tbody>' +
+    '<p class="small" style="margin:0 0 8px">Cargá los valores mejorados más abajo (ya está todo precargado) y enviá. ' + (mar ? 'Los valores son solo de flete por contenedor (sin Recarga IMO, Locales ARG ni gastos).' : 'Los valores son solo de flete USD/kg a ' + D.air.peso + ' kg (sin fuel, IMO ni gastos).') + '</p>' +
+    '<div class="tablewrap"><table><thead><tr><th>Vigencia</th><th>Ruta</th><th>' + (mar ? 'Naviera' : 'Aerolínea') + '</th>' + (mar ? '<th>Contenedor</th>' : '') + '<th>Tu flete</th><th>Flete objetivo</th><th>Comentario</th></tr></thead><tbody>' +
     ps.map(function (p) { return '<tr><td>' + esc(fVig(p.desde, p.hasta)) + '</td><td>' + esc(p.origen + ' → ' + p.destino) + '</td><td>' + esc(p.carrier) + '</td>' + (mar ? '<td>' + esc(p.ctnr) + '</td>' : '') +
       '<td>USD ' + fmt(p.actual) + (mar ? '' : '/kg') + '</td><td>' + (p.objetivo !== '' ? '<b>USD ' + fmt(p.objetivo) + (mar ? '' : '/kg') + '</b>' : '<span class="muted">Tu mejor valor</span>') + '</td><td>' + esc(p.mensaje) + '</td></tr>'; }).join('') +
     '</tbody></table></div></div></section>';
@@ -290,7 +290,7 @@ function mRutaHTML(r, i) {
     '<div><div class="small muted" style="margin-bottom:4px">Flete en USD por contenedor. Completá solo los que cotizás, cada uno con sus días libres. 40ST/40HQ es un solo valor para los dos.</div>' +
       '<div class="tablewrap"><table><thead><tr><th>Contenedor</th><th>Valor flete USD</th><th>Días libres</th></tr></thead><tbody>' + MR().contenedores.map(function (c) {
         var x = r.contenedores[c] || {}, conFlete = n(x.flete) > 0, p = mPedidoDe(r, c);
-        return '<tr class="' + (p ? 'pedido' : '') + '"><td><b>' + c + '</b>' + (p ? '<div class="hint obj">' + (p.objetivo !== '' ? 'Objetivo: USD ' + fmt(p.objetivo) + ' (flete + recargos)' : 'BIDCOM pide mejorar') + '</div>' : '') + '</td>' +
+        return '<tr class="' + (p ? 'pedido' : '') + '"><td><b>' + c + '</b>' + (p ? '<div class="hint obj">' + (p.objetivo !== '' ? 'Flete objetivo: USD ' + fmt(p.objetivo) : 'BIDCOM pide mejorar') + '</div>' : '') + '</td>' +
           '<td><input type="number" min="0" step="0.01" data-mr="' + i + '" data-mc="' + c + '" data-mck="flete" value="' + esc(x.flete) + '" aria-label="Flete ' + c + '"></td>' +
           '<td><input type="number" min="0" step="1" data-mr="' + i + '" data-mc="' + c + '" data-mck="dias" value="' + esc(x.dias) + '" class="' + (conFlete && isNaN(n(x.dias)) ? 'bad' : '') + '" aria-label="Días libres ' + c + '"></td></tr>'; }).join('') +
       '</tbody></table></div></div>' +
@@ -436,7 +436,7 @@ function rutaHTML(r, i) {
   var p = aPedidoDe(r);
   return '<div class="route' + (p ? ' pedido' : '') + '"><div class="route-head"><h3>' + esc(r.origen) + ' → ' + esc(r.destino) + (p ? ' <span class="tipo">Pedido de mejora</span>' : '') + '</h3>' +
       '<span class="allin" data-allin="' + i + '">' + allinTxt(allin(r)) + '</span></div>' +
-    (p ? '<div class="hint obj">' + (p.objetivo !== '' ? 'Objetivo: USD ' + fmt(p.objetivo) + '/kg all-in a ' + A().peso + ' kg' : 'BIDCOM pide mejorar esta ruta') + (p.mensaje ? ' · ' + esc(p.mensaje) : '') + '</div>' : '') +
+    (p ? '<div class="hint obj">' + (p.objetivo !== '' ? 'Flete objetivo: USD ' + fmt(p.objetivo) + '/kg a ' + A().peso + ' kg' : 'BIDCOM pide mejorar esta ruta') + (p.mensaje ? ' · ' + esc(p.mensaje) : '') + '</div>' : '') +
     '<div class="grid"><label>Aerolínea<input data-r="' + i + '" data-k="aerolinea" value="' + esc(r.aerolinea) + '" class="' + (String(r.aerolinea || '').trim() ? '' : 'bad') + '"></label>' +
     '<label>Tránsito (días)' + inp('transito', r.transito, !(n(r.transito) > 0), '1', 'Tránsito') + '</label>' +
     '<label>Moneda<input value="USD" disabled></label>' +

@@ -205,7 +205,7 @@ function tablaRanking(R) {
 }
 function tablaPend(p) {
   if (!p.length) return '<div class="vacio">No hay tarifas esperando decisión.</div>';
-  return '<div class="tw"><table><thead><tr><th scope="col">Recibido</th><th scope="col">Agente</th><th scope="col">Ruta</th>' + (S.modo === 'mar' ? '<th scope="col">Ctnr</th>' : '') + '<th class="n" scope="col">Total</th><th class="n" scope="col">Vs la menor</th><th scope="col">Estado</th><th scope="col"></th></tr></thead><tbody>' +
+  return '<div class="tw"><table><thead><tr><th scope="col">Recibido</th><th scope="col">Agente</th><th scope="col">Ruta</th>' + (S.modo === 'mar' ? '<th scope="col">Ctnr</th>' : '') + '<th class="n" scope="col">Flete</th><th class="n" scope="col">Vs el menor flete</th><th scope="col">Estado</th><th scope="col"></th></tr></thead><tbody>' +
     p.map(function (x) {
       var sem = { Verde: 'ok', Amarillo: 'warn', Naranja: 'warn', Rojo: 'bad' }[x[11]] || 'neu';
       return '<tr><td>' + esc(String(x[2]).slice(5, 16)) + '</td><td>' + esc(x[4]) + '</td><td>' + esc(x[5] + ' → ' + x[6]) + ' <span class="m">' + esc(x[7]) + '</span></td>' + (S.modo === 'mar' ? '<td>' + esc(x[8]) + '</td>' : '') +
