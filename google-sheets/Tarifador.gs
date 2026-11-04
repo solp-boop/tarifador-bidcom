@@ -533,9 +533,9 @@ var Tarifador = (function () {
 
       try { datos = recalcular(cfg, sh, datos); } catch (e1) { registrar('Sistema', 'Error al recalcular la comparación', String(e1 && e1.message || e1)); }
       // Pegado en la base madre: si falla, el envío igual queda guardado y el error va al registro
-      try { if (cfg.auto) pegarEnvioEnBase(cfg, modo, agente, lineas, desde, hasta, version, ahora); }
+      try { if (cfg.auto) { pegarEnvioEnBase(cfg, modo, agente, lineas, desde, hasta, version, ahora); SpreadsheetApp.flush(); } }
       catch (e2) { registrar('Sistema', 'Error al pegar en la base madre', String(e2 && e2.message || e2)); }
-      try { if (cfg.auto && modo === MODO.MAR) pegarGastosOrigen(cfg, agente, lineas, id, ahora); }
+      try { if (cfg.auto && modo === MODO.MAR) { pegarGastosOrigen(cfg, agente, lineas, id, ahora); SpreadsheetApp.flush(); } }
       catch (e4) { registrar('Sistema', 'Error al pegar los gastos en origen', String(e4 && e4.message || e4)); }
       try { avisarAlTeam(cfg, agente, modo, datos.slice(primera - 2), version, MOTIVOS[motivo], sh); }
       catch (e3) { registrar('Sistema', 'Error al avisar al team', String(e3 && e3.message || e3)); }
@@ -999,6 +999,27 @@ var Tarifador = (function () {
     if (ctnrs.indexOf('40ST/40HQ') >= 0 || ctnrs.indexOf('40NOR') >= 0) out.push(['40GP/HQ/NOR', '40']);
     return out;
   }
+  // Listas desplegables (validación) de cada columna, leídas de una fila con datos. Devuelve {col: [valores]}
+  function listasValidacion(hoja, fila, ancho) {
+    var out = {};
+    try {
+      var reglas = hoja.getRange(fila, 1, 1, ancho).getDataValidations()[0] || [], T = SpreadsheetApp.DataValidationCriteria;
+      for (var j = 0; j < ancho; j++) {
+        var r = reglas[j]; if (!r || typeof r.getCriteriaType !== 'function' || r.getAllowInvalid()) continue;
+        var t = r.getCriteriaType(), a = r.getCriteriaValues(), lista = null;
+        if (t === T.VALUE_IN_LIST) lista = a[0];
+        else if (t === T.VALUE_IN_RANGE) lista = [].concat.apply([], a[0].getValues());
+        if (lista) out[j + 1] = lista.map(String).filter(function (x) { return x.trim(); });
+      }
+    } catch (e) { }
+    return out;
+  }
+  // Ajusta el valor a como está escrito en la lista (mayúsculas, espacios). null = no está en la lista.
+  function enLista(listas, col, valor) {
+    var l = listas[col]; if (!l || valor === '' || valor === null || valor === undefined) return valor;
+    var k = claveTexto(valor); for (var i = 0; i < l.length; i++) if (claveTexto(l[i]) === k) return l[i];
+    return null;
+  }
   function sumarMeses(d, m) { return new Date(d.getFullYear(), d.getMonth() + m, d.getDate()); }
   function pegarGastosOrigen(cfg, agente, lineas, id, ahora) {
     if (!cfg.gastosUrl) return 0;
@@ -1020,7 +1041,15 @@ var Tarifador = (function () {
       var c = claveTexto(r[M.concepto - 1]), f = String(r[M.fijo - 1]).trim(); if (!c || !f) return;
       var o = fijoDe[c] = fijoDe[c] || {}; f = f.charAt(0).toUpperCase() + f.slice(1).toLowerCase(); o[f] = (o[f] || 0) + 1;
     });
-    var validez = sumarMeses(ahora, cfg.gastosMeses), nota = 'Tarifador ' + id + ' · enviado ' + fechaLarga(ahora), nuevas = [], actualizadas = 0;
+    var validez = sumarMeses(ahora, cfg.gastosMeses), nota = 'Tarifador ' + id + ' · enviado ' + fechaLarga(ahora), nuevas = [], actualizadas = 0, rechazos = {};
+    var listas = ultima > 1 ? listasValidacion(hoja, ultima, ancho) : {};
+    // La columna Agente puede tener una lista: si el agente no está, no se pega nada y se avisa (si no, Google rechaza la fila)
+    var agLista = enLista(listas, M.agente, nomAg);
+    if (agLista === null) {
+      registrar('Sistema', 'No se pegaron los gastos en origen', agente.nombre + ' no está en la lista de la columna Agente de "' + cfg.gastosHoja + '". Agregalo a esa lista y pedile que vuelva a enviar, o cargalos a mano.');
+      return 0;
+    }
+    nomAg = agLista;
     Object.keys(rutas).forEach(function (k) {
       var r = rutas[k].r, puerto = String(r.pol || '').trim().toUpperCase(), tipos = ctnrsGastos(rutas[k].ctnrs);
       (r.gastos || []).forEach(function (g) {
@@ -1034,18 +1063,23 @@ var Tarifador = (function () {
             if (claveTexto(x[M.agente - 1]) === claveTexto(agente.nombre) && claveTexto(x[M.puerto - 1]) === claveTexto(puerto) &&
                 claveTexto(x[M.tipoCtnr - 1]) === claveTexto(t[0]) && claveTexto(x[M.concepto - 1]) === claveTexto(concepto)) iguales.push(i);
           });
+          var pto = enLista(listas, M.puerto, puerto), cpt = enLista(listas, M.concepto, concepto), tp = M.tipo ? enLista(listas, M.tipo, tipo) : tipo, tc = enLista(listas, M.tipoCtnr, t[0]);
+          if (pto === null || cpt === null || tp === null || tc === null) {
+            rechazos[(pto === null ? 'puerto ' + puerto : '') + (cpt === null ? ' concepto ' + concepto : '') + (tp === null ? ' tipo ' + tipo : '') + (tc === null ? ' contenedor ' + t[0] : '')] = true;
+            return;
+          }
           if (iguales.length === 1) {
             var fila = iguales[0] + 2, x = datos[iguales[0]];
             hoja.getRange(fila, M.valor).setValue(valor);
-            if (M.tipo) hoja.getRange(fila, M.tipo).setValue(tipo);
+            if (M.tipo) hoja.getRange(fila, M.tipo).setValue(tp);
             hoja.getRange(fila, M.validez).setValue(validez).setNumberFormat('dd/MM/yyyy');
             if (M.obs && (!String(x[M.obs - 1]).trim() || /^Tarifador/.test(String(x[M.obs - 1])))) hoja.getRange(fila, M.obs).setValue(nota);
             actualizadas++;
             return;
           }
           var f = []; for (var c = 0; c < ancho; c++) f.push('');
-          f[M.agente - 1] = nomAg; f[M.puerto - 1] = puerto; f[M.tipoCtnr - 1] = t[0]; if (M.unif) f[M.unif - 1] = t[1]; f[M.concepto - 1] = concepto;
-          if (M.tipo) f[M.tipo - 1] = tipo; f[M.valor - 1] = valor; if (M.fijo) f[M.fijo - 1] = fijo; if (M.obs) f[M.obs - 1] = nota; f[M.validez - 1] = validez;
+          f[M.agente - 1] = nomAg; f[M.puerto - 1] = pto; f[M.tipoCtnr - 1] = tc; if (M.unif) f[M.unif - 1] = t[1]; f[M.concepto - 1] = cpt;
+          if (M.tipo) f[M.tipo - 1] = tp; f[M.valor - 1] = valor; if (M.fijo) f[M.fijo - 1] = fijo; if (M.obs) f[M.obs - 1] = nota; f[M.validez - 1] = validez;
           nuevas.push(f);
         });
       });
@@ -1056,6 +1090,8 @@ var Tarifador = (function () {
       hoja.getRange(ultima + 1, 1, nuevas.length, ancho).setValues(nuevas);
       hoja.getRange(ultima + 1, M.validez, nuevas.length, 1).setNumberFormat('dd/MM/yyyy');
     }
+    SpreadsheetApp.flush();                                             // si Google rechaza algo, que falle acá y no al final del envío
+    if (Object.keys(rechazos).length) registrar('Sistema', 'Gastos en origen sin pegar', 'No están en las listas de "' + cfg.gastosHoja + '": ' + Object.keys(rechazos).join(', '));
     registrar('Sistema', 'Pegó gastos en origen', nuevas.length + ' fila(s) nueva(s) y ' + actualizadas + ' actualizada(s) en "' + cfg.gastosHoja + '" · válidos hasta ' + fechaLarga(validez));
     return nuevas.length + actualizadas;
   }
