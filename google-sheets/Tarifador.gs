@@ -65,6 +65,10 @@ var Tarifador = (function () {
     ['airNeg', 'Pestaña tarifas negociadas (aéreo)', 'Cotizaciones Aereos Negociado', 'La tarifa aérea que el agente manda después de un pedido de mejora.'],
     ['imoTexto', 'IMO a pedido se escribe como', 'Upon RQST', ''],
     ['peso', 'Peso de referencia (kg)', 500, 'Para calcular el all-in USD/kg. No cambiarlo seguido: deja de ser comparable.'],
+    ['GASTOS EN ORIGEN'],
+    ['gastosUrl', 'Base de gastos en origen: link de la planilla', 'https://docs.google.com/spreadsheets/d/1mNQlFxmFs4SjVlhDPuoxCafoF68qMECQFYNUgISOYrc/edit', 'Los gastos en origen marítimos se pegan acá, concepto por concepto. Vacío = no se pegan.'],
+    ['gastosHoja', 'Pestaña de gastos en origen', 'Concatenado de GS (ffww)', 'Una fila por agente, puerto, contenedor y concepto. Si la fila ya existe se actualiza; si no, se agrega abajo.'],
+    ['gastosMeses', 'Validez de los gastos en origen (meses)', 1, 'Se escribe en la columna de validez. Unos días antes, el agente recibe un aviso para volver a cotizarlos.'],
     ['LINK'],
     ['formUrl', 'Link del formulario (aplicación web)', '', 'La URL /exec de Implementar > Gestionar implementaciones. Vacío = la que informa Google. Con esta se arman los links de los agentes.']
   ];
@@ -329,7 +333,7 @@ var Tarifador = (function () {
       reduccion: red, mostrarTarget: String(v.mostrarTarget).trim().toUpperCase() !== 'NO', diasAviso: num(v.diasAviso) >= 0 && v.diasAviso !== '' ? num(v.diasAviso) : 5,
       baseUrl: String(v.baseUrl || '').trim(), auto: String(v.auto).trim().toUpperCase() !== 'NO',
       marIni: String(v.marIni || '').trim(), marNeg: String(v.marNeg || '').trim(), locales: num(v.locales) || 800,
-      formUrl: String(v.formUrl || '').trim(), airIni: String(v.airIni || '').trim(), airNeg: String(v.airNeg || '').trim(), imoTexto: String(v.imoTexto || '').trim() || 'Upon RQST', peso: num(v.peso) || 500
+      formUrl: String(v.formUrl || '').trim(), gastosUrl: String(v.gastosUrl || '').trim(), gastosHoja: String(v.gastosHoja || '').trim() || 'Concatenado de GS (ffww)', gastosMeses: num(v.gastosMeses) > 0 ? num(v.gastosMeses) : 1, airIni: String(v.airIni || '').trim(), airNeg: String(v.airNeg || '').trim(), imoTexto: String(v.imoTexto || '').trim() || 'Upon RQST', peso: num(v.peso) || 500
     };
     var A = BLOQUE.AGENTES - 1;
     cfg.agentes = [];
@@ -531,6 +535,8 @@ var Tarifador = (function () {
       // Pegado en la base madre: si falla, el envío igual queda guardado y el error va al registro
       try { if (cfg.auto) pegarEnvioEnBase(cfg, modo, agente, lineas, desde, hasta, version, ahora); }
       catch (e2) { registrar('Sistema', 'Error al pegar en la base madre', String(e2 && e2.message || e2)); }
+      try { if (cfg.auto && modo === MODO.MAR) pegarGastosOrigen(cfg, agente, lineas, id, ahora); }
+      catch (e4) { registrar('Sistema', 'Error al pegar los gastos en origen', String(e4 && e4.message || e4)); }
       try { avisarAlTeam(cfg, agente, modo, datos.slice(primera - 2), version, MOTIVOS[motivo], sh); }
       catch (e3) { registrar('Sistema', 'Error al avisar al team', String(e3 && e3.message || e3)); }
       return { ok: true, version: version, id: id, tipo: tipoEnvio, datos: datosParaAgente(agente) };
@@ -963,6 +969,124 @@ var Tarifador = (function () {
       registrar('Sistema', 'Aviso de vencimiento', g.ffww + ' · ' + g.modo + ' · vence ' + fechaCorta(hasta));
       enviados++;
     });
+    try { enviados += avisarVencimientoGastos(cfg); } catch (eG) { registrar('Sistema', 'Error en el aviso de gastos en origen', String(eG && eG.message || eG)); }
+    return enviados;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Gastos en origen marítimos → base de gastos (Concatenado de GS)      */
+  /* Una fila por agente, puerto, contenedor y concepto. Si existe una    */
+  /* sola fila igual se actualiza (valor, tipo y validez); si no, se agrega. */
+  /* ------------------------------------------------------------------ */
+  var CONCEPTO_BASE = { 'HANDLINGFEE': 'Handling fee', 'VGMPESADA': 'VGM - Pesada', 'EIR': 'EIR - Doc conf entrega recp cont', 'SEALPRECINTO': 'SEAL - Sellos Seg/Prec',
+    'ORCTHC': 'ORC - Manip/Recp Merc', 'TELEXRELEASEFEE': 'Telex release Fee', 'DOCUMENTATIONFEE': 'Gestion y emision de doc de la operacion', 'DGFEE': 'DG fee',
+    'PICKUPFEEEXW': 'Pick up Fee EXW', 'WAREHOUSEFEE': 'Warehouse Fee', 'CUSTOMSCLEARANCEFEE': 'Customs clearance Fee', 'ISSUECUSTOMSDOCFEE': 'Issue Customs Doc Fee' };
+  var UNIDAD_BASE = { 'PORBL': 'POR CANTIDAD DE PROVEEDORES', 'PORCONTENEDOR': 'POR CONTENEDOR', 'POREMBARQUE': 'POR OPERACION', 'PORCBM': 'POR VOLUMEN', 'PORTONELADA': 'POR TONELADA' };
+  var MAPA_GASTOS = [['agente', ['AGENTE']], ['puerto', ['PUERTO DE SALIDA', 'PUERTO']], ['tipoCtnr', ['TIPODECONTENEDOR', 'TIPO DE CONTENEDOR']], ['unif', ['CONTENEDOR UNIFICADO']],
+    ['concepto', ['CONCEPTO']], ['tipo', ['TIPO']], ['valor', ['VALOR']], ['fijo', ['COSTO FIJO'], true], ['obs', ['OBSERVACIONES']], ['validez', ['VALIDEZ', 'VALDIEZ'], true]];
+  function columnasGastos(hoja) {
+    var enc = hoja.getRange(1, 1, 1, Math.max(10, hoja.getLastColumn())).getValues()[0], M = {};
+    enc.forEach(function (h, j) {
+      var k = claveTexto(h); if (!k) return;
+      MAPA_GASTOS.forEach(function (m) { if (M[m[0]]) return; m[1].forEach(function (a) { var ka = claveTexto(a); if (!M[m[0]] && (k === ka || (m[2] && k.indexOf(ka) === 0))) M[m[0]] = j + 1; }); });
+    });
+    if (!M.validez) M.validez = 10;                                    // columna J
+    return M;
+  }
+  function ctnrsGastos(ctnrs) {
+    var out = [];
+    if (ctnrs.indexOf('20ST') >= 0) out.push(['20ST', '20']);
+    if (ctnrs.indexOf('40ST/40HQ') >= 0 || ctnrs.indexOf('40NOR') >= 0) out.push(['40GP/HQ/NOR', '40']);
+    return out;
+  }
+  function sumarMeses(d, m) { return new Date(d.getFullYear(), d.getMonth() + m, d.getDate()); }
+  function pegarGastosOrigen(cfg, agente, lineas, id, ahora) {
+    if (!cfg.gastosUrl) return 0;
+    var rutas = {};
+    lineas.forEach(function (l) { if (!l.pegar) return; var r = rutas[l.ruta] = rutas[l.ruta] || { r: l.r, ctnrs: [] }; if (r.ctnrs.indexOf(l.ctnr) < 0) r.ctnrs.push(l.ctnr); });
+    if (!Object.keys(rutas).length) return 0;
+    var hoja = SpreadsheetApp.openByUrl(cfg.gastosUrl).getSheetByName(cfg.gastosHoja);
+    if (!hoja) throw new Error('No existe la pestaña "' + cfg.gastosHoja + '" en la base de gastos en origen.');
+    var M = columnasGastos(hoja);
+    ['agente', 'puerto', 'tipoCtnr', 'concepto', 'valor'].forEach(function (c) { if (!M[c]) throw new Error('La base de gastos no tiene la columna "' + c + '".'); });
+    var ancho = Math.max.apply(null, Object.keys(M).map(function (k) { return M[k]; }));
+    var max = hoja.getMaxRows(), datos = max > 1 ? hoja.getRange(2, 1, max - 1, ancho).getValues() : [], ultima = 1;
+    datos.forEach(function (r, i) { if (String(r[M.agente - 1]).trim()) ultima = i + 2; });
+    datos = datos.slice(0, Math.max(0, ultima - 1));
+    var nomAg = agente.nombre;
+    datos.some(function (r) { if (claveTexto(r[M.agente - 1]) === claveTexto(agente.nombre)) { nomAg = String(r[M.agente - 1]).trim(); return true; } return false; });
+    var fijoDe = {};                                                    // Fijo / Variable más usado para cada concepto
+    if (M.fijo) datos.forEach(function (r) {
+      var c = claveTexto(r[M.concepto - 1]), f = String(r[M.fijo - 1]).trim(); if (!c || !f) return;
+      var o = fijoDe[c] = fijoDe[c] || {}; f = f.charAt(0).toUpperCase() + f.slice(1).toLowerCase(); o[f] = (o[f] || 0) + 1;
+    });
+    var validez = sumarMeses(ahora, cfg.gastosMeses), nota = 'Tarifador ' + id + ' · enviado ' + fechaLarga(ahora), nuevas = [], actualizadas = 0;
+    Object.keys(rutas).forEach(function (k) {
+      var r = rutas[k].r, puerto = String(r.pol || '').trim().toUpperCase(), tipos = ctnrsGastos(rutas[k].ctnrs);
+      (r.gastos || []).forEach(function (g) {
+        var valor = num(g.importe); if (valor === '' || isNaN(valor)) return;
+        var desc = String(g.descripcion || '').trim(), concepto = CONCEPTO_BASE[claveTexto(g.concepto)] || desc || String(g.concepto).replace(/^Otro:\s*/, '');
+        var tipo = UNIDAD_BASE[claveTexto(g.unidad)] || String(g.unidad || '').toUpperCase();
+        var fo = fijoDe[claveTexto(concepto)] || {}, fijo = Object.keys(fo).sort(function (a, b) { return fo[b] - fo[a]; })[0] || '';
+        tipos.forEach(function (t) {
+          var iguales = [];
+          datos.forEach(function (x, i) {
+            if (claveTexto(x[M.agente - 1]) === claveTexto(agente.nombre) && claveTexto(x[M.puerto - 1]) === claveTexto(puerto) &&
+                claveTexto(x[M.tipoCtnr - 1]) === claveTexto(t[0]) && claveTexto(x[M.concepto - 1]) === claveTexto(concepto)) iguales.push(i);
+          });
+          if (iguales.length === 1) {
+            var fila = iguales[0] + 2, x = datos[iguales[0]];
+            hoja.getRange(fila, M.valor).setValue(valor);
+            if (M.tipo) hoja.getRange(fila, M.tipo).setValue(tipo);
+            hoja.getRange(fila, M.validez).setValue(validez).setNumberFormat('dd/MM/yyyy');
+            if (M.obs && (!String(x[M.obs - 1]).trim() || /^Tarifador/.test(String(x[M.obs - 1])))) hoja.getRange(fila, M.obs).setValue(nota);
+            actualizadas++;
+            return;
+          }
+          var f = []; for (var c = 0; c < ancho; c++) f.push('');
+          f[M.agente - 1] = nomAg; f[M.puerto - 1] = puerto; f[M.tipoCtnr - 1] = t[0]; if (M.unif) f[M.unif - 1] = t[1]; f[M.concepto - 1] = concepto;
+          if (M.tipo) f[M.tipo - 1] = tipo; f[M.valor - 1] = valor; if (M.fijo) f[M.fijo - 1] = fijo; if (M.obs) f[M.obs - 1] = nota; f[M.validez - 1] = validez;
+          nuevas.push(f);
+        });
+      });
+    });
+    if (nuevas.length) {
+      asegurarFila(hoja, ultima + nuevas.length);
+      if (ultima > 1) hoja.getRange(ultima, 1, 1, ancho).copyTo(hoja.getRange(ultima + 1, 1, nuevas.length, ancho), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+      hoja.getRange(ultima + 1, 1, nuevas.length, ancho).setValues(nuevas);
+      hoja.getRange(ultima + 1, M.validez, nuevas.length, 1).setNumberFormat('dd/MM/yyyy');
+    }
+    registrar('Sistema', 'Pegó gastos en origen', nuevas.length + ' fila(s) nueva(s) y ' + actualizadas + ' actualizada(s) en "' + cfg.gastosHoja + '" · válidos hasta ' + fechaLarga(validez));
+    return nuevas.length + actualizadas;
+  }
+  // Aviso de vencimiento de los gastos en origen que cargó el Tarifador (una vez por agente y fecha)
+  function avisarVencimientoGastos(cfg) {
+    if (!cfg.gastosUrl) return 0;
+    var hoja = SpreadsheetApp.openByUrl(cfg.gastosUrl).getSheetByName(cfg.gastosHoja); if (!hoja) return 0;
+    var M = columnasGastos(hoja); if (!M.obs || !M.agente) return 0;
+    var ultima = hoja.getLastRow(); if (ultima < 2) return 0;
+    var ancho = Math.max(M.validez, M.obs, M.agente, M.puerto || 1), datos = hoja.getRange(2, 1, ultima - 1, ancho).getValues(), hoy = aDia(new Date()), porAg = {};
+    datos.forEach(function (r) {
+      if (!/^Tarifador/.test(String(r[M.obs - 1])) || !(r[M.validez - 1] instanceof Date)) return;
+      var k = claveTexto(r[M.agente - 1]), d = aDia(r[M.validez - 1]), a = porAg[k] = porAg[k] || { max: 0, puertos: {} };
+      a.max = Math.max(a.max, d); if (M.puerto) a.puertos[String(r[M.puerto - 1]).trim()] = true;
+    });
+    var ag = {}; cfg.agentes.forEach(function (a) { ag[claveTexto(a.nombre)] = a; });
+    var props = PropertiesService.getScriptProperties(), enviados = 0;
+    Object.keys(porAg).forEach(function (k) {
+      var x = porAg[k], dias = Math.round((x.max - hoy) / 86400000), a = ag[k];
+      if (!a || !a.activo || dias < 0 || dias > cfg.diasAviso) return;
+      var marca = 'gastosAviso|' + k + '|' + x.max; if (props.getProperty(marca)) return;
+      var hasta = new Date(x.max), para = a.email || cfg.teamMails.join(',');
+      if (!para) return;
+      mandarMail({ to: para, cc: a.email ? cfg.teamMails.join(',') : '', replyTo: cfg.teamMails[0] || '', subject: 'BIDCOM · Tus gastos en origen vencen el ' + fechaCorta(hasta) + ': volvé a cotizarlos',
+        html: htmlEnvolver('<p>Hola ' + esc(a.contacto || a.nombre) + ':</p><p>Los <b>gastos en origen</b> que nos cotizaste vencen el <b>' + esc(fechaLarga(hasta)) + '</b>' +
+          (dias === 0 ? ' (hoy)' : ' (faltan ' + dias + ' día' + (dias === 1 ? '' : 's') + ')') + '. Los gastos en origen negociados tienen una validez de un mes: volvé a cotizarlos desde tu link.</p>' +
+          '<p>Puertos: ' + esc(Object.keys(x.puertos).join(', ')) + '</p>' + htmlBoton(linkDe(a), 'Cotizar gastos en origen')) });
+      props.setProperty(marca, fechaHora(new Date()));
+      registrar('Sistema', 'Aviso de vencimiento de gastos en origen', a.nombre + ' · vencen ' + fechaCorta(hasta));
+      enviados++;
+    });
     return enviados;
   }
 
@@ -1271,6 +1395,8 @@ var Tarifador = (function () {
 
   return {
     abrirPanel: abrirPanel,
+    pegarGastosOrigen: pegarGastosOrigen,
+    avisarVencimientoGastos: avisarVencimientoGastos,
     datosPanel: datosPanel,
     irAFila: irAFila,
     numBase: numBase,

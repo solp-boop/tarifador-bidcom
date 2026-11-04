@@ -175,6 +175,16 @@ function enviosHTML(titulo, lista) {
         (e.motivo === 'Corrección' ? ' <span class="muted small">corrección</span>' : '') + '</td><td><span class="estado ' + cls + '">' + esc(e.estado) + '</span></td><td>' + esc(e.recibido) + '</td><td>' + esc(e.rutas) + '</td></tr>'; }).join('') +
     '</tbody></table></div></section>';
 }
+function tipoEnvioHTML(nombre, actual, u, hayPedido) {
+  if (!u) return '<section class="panel"><h2>¿Qué estás enviando?</h2><div class="alert info"><b>Primera cotización para esta vigencia.</b> Se registra como <span class="tipo">Tarifa inicial</span>. ' +
+    'Si después BIDCOM te pide una mejora, te llega un mail: entrás con este mismo link, ves el pedido arriba de todo y lo cargás como <b>tarifa mejorada</b>.</div></section>';
+  return '<section class="panel"><h2>¿Qué estás enviando?</h2>' + (hayPedido ? '<div class="alert info" style="margin-bottom:8px"><b>BIDCOM te pidió mejorar tarifas de esta vigencia.</b> Elegí "Es una tarifa mejorada".</div>' : '') +
+    (actual ? '' : '<div class="alert bad" style="margin-bottom:8px"><b>Elegí una opción para poder enviar.</b></div>') + motivoHTML(nombre, actual, u, hayPedido) + '</section>';
+}
+function tipoChip(u, motivo) {
+  var t = !u ? 'Tarifa inicial' : motivo === 'negociada' ? 'Tarifa mejorada (negociada)' : motivo === 'correccion' ? 'Corrección' : 'Elegí arriba qué es';
+  return '<p class="small" style="margin:12px 0">Este envío se registra como <span class="tipo">' + t + '</span></p>';
+}
 function motivoHTML(nombre, actual, u, hayPedido) {
   if (!u) return '<p class="small" style="margin:12px 0">Este envío se registra como <span class="tipo">Tarifa inicial</span></p>';
   var opc = [['negociada', 'Es una tarifa mejorada' + (hayPedido ? ' (respondo el pedido de BIDCOM)' : ''), 'Se registra como tarifa negociada. Tu tarifa inicial queda guardada.'],
@@ -313,14 +323,15 @@ function renderMar() {
   var errs = mErrores(), u = mUltimo(), html = '';
   html += pedidosHTML('mar');
   html += vigenciaHTML('m', mVig, MR());
+  html += tipoEnvioHTML('mmotivo', mMotivo, u, pedidosDe('mar', mVig.desde).length);
   html += excelHTML('m');
   if (mPrecarga) html += '<p class="small muted" style="margin:-8px 0 0 4px">' + (mPrecarga === 'esta' ? 'Precargamos tu envío de esta vigencia: revisalo y enviá la nueva versión.' : 'Precargamos tu última cotización como punto de partida: actualizá lo que cambió.') + '</p>';
-  html += '<section class="panel"><h2>Lo importante</h2><div class="alert warn"><b>Gastos en origen.</b> Completalos concepto por concepto, con su unidad de cobro. BIDCOM los usa como base para una negociación específica de gastos en origen.</div>' +
+  html += '<section class="panel"><h2>Lo importante</h2><div class="alert warn"><b>Gastos en origen.</b> Completalos concepto por concepto, con su unidad de cobro. BIDCOM los usa como base para una negociación específica de gastos en origen. <b>Los gastos en origen negociados tienen una validez de un mes</b>: pasado ese plazo, BIDCOM te va a pedir que los vuelvas a cotizar.</div>' +
     '<ul class="notes"><li>Locales ARG: el valor aceptado por BIDCOM es USD ' + fmt(MR().localesAceptado) + '.</li>' +
     '<li>Cotizá cada contenedor con su valor y sus días libres.</li><li>Una naviera por ruta. La Recarga IMO, si aplica, va en su campo, en USD.</li></ul></section>';
   html += '<div class="layout"><div style="display:flex;flex-direction:column;gap:16px"><section class="panel"><h2>Rutas</h2><div style="display:flex;flex-direction:column;gap:12px">' + mForm.rutas.map(mRutaHTML).join('') + '</div>' +
     '<div style="margin-top:12px"><button type="button" class="btn" id="mmas">+ Agregar otra ruta</button></div></section></div>';
-  html += '<aside class="panel"><h2>Antes de enviar</h2><div id="mcheck">' + checkHTML(errs) + '</div>' + motivoHTML('mmotivo', mMotivo, u, pedidosDe('mar', mVig.desde).length) +
+  html += '<aside class="panel"><h2>Antes de enviar</h2><div id="mcheck">' + checkHTML(errs) + '</div>' + tipoChip(u, mMotivo) +
     '<button class="btn primary" id="menviar" ' + (mEnviando ? 'disabled' : '') + '>' + (mEnviando ? 'Enviando…' : (u ? 'Enviar nueva versión' : 'Enviar a BIDCOM')) + '</button>' +
     '<p class="small muted">Una vez enviada, la versión queda registrada. Si necesitás corregir, volvé a entrar con tu link.</p></aside></div>';
   html += enviosHTML('Mis envíos marítimos', MR().envios);
@@ -358,7 +369,7 @@ function bindMar() {
 }
 function enviarMar() {
   var errs = mErrores();
-  if (errs.length) { document.getElementById('mcheck').innerHTML = '<div class="alert bad"><b>Todavía faltan datos.</b></div>' + checkHTML(errs); return; }
+  if (errs.length) { document.getElementById('mcheck').innerHTML = '<div class="alert bad"><b>No se puede enviar: faltan datos.</b> Completá lo que está en rojo.</div>' + checkHTML(errs); return; }
   if (mUltimo() && !mMotivo) { document.getElementById('mcheck').innerHTML = '<div class="alert bad"><b>Indicá qué es este envío:</b> una tarifa mejorada o una corrección.</div>'; return; }
   mEnviando = true; render();
   var payload = { desde: mVig.desde, hasta: mVig.hasta, motivo: mMotivo, archivo: XLI.m && !XLI.m.error ? XLI.m.archivo : '', rutas: mForm.rutas.map(function (r) {
@@ -467,9 +478,10 @@ function renderAir() {
   var notas = A().notas || [], errs = aErrores(), u = aUltimo(), html = '';
   html += pedidosHTML('air');
   html += vigenciaHTML('a', aVig, A());
+  html += tipoEnvioHTML('motivo', aMotivo, u, pedidosDe('air', aVig.desde).length);
   html += excelHTML('a');
   if (aPrecarga) html += '<p class="small muted" style="margin:-8px 0 0 4px">' + (aPrecarga === 'esta' ? 'Precargamos tu envío de esta vigencia: revisalo y enviá la nueva versión.' : 'Precargamos tu última cotización como punto de partida: actualizá lo que cambió.') + '</p>';
-  if (notas.length) html += '<section class="panel"><h2>Lo importante</h2><div class="alert warn"><b>Gastos en origen.</b> ' + esc(notas[0]) + '</div>' +
+  if (notas.length) html += '<section class="panel"><h2>Lo importante</h2><div class="alert warn"><b>Gastos en origen.</b> ' + esc(notas[0]) + ' <b>Los gastos en origen negociados tienen una validez de un mes</b>: pasado ese plazo, BIDCOM te va a pedir que los vuelvas a cotizar.</div>' +
     (notas.length > 1 ? '<ul class="notes">' + notas.slice(1).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '') + '</section>';
   if (!aForm.rutas.length) { html += '<section class="panel"><p>BIDCOM todavía no cargó rutas aéreas para cotizar.</p></section>'; document.getElementById('app').innerHTML = html; bindVigencia('a', aVig, function () { if (aUltimo()) cargarAir(); render(); }); return; }
   html += '<div class="layout"><div style="display:flex;flex-direction:column;gap:16px">';
@@ -480,7 +492,7 @@ function renderAir() {
       var falta = !(aForm.gastos[r.origen] || []).some(function (c) { return c.pedido || !vacio(c.importe); });
       return '<button type="button" class="tab' + (falta ? ' missing' : '') + '" data-tab="' + esc(r.origen) + '" aria-pressed="' + (aTab === r.origen) + '">' + esc(r.origen) + '</button>'; }).join('') + '</div>' +
     gastosHTML(aTab) + '</section>';
-  html += '</div><aside class="panel"><h2>Antes de enviar</h2><div id="check">' + checkHTML(errs) + '</div>' + motivoHTML('motivo', aMotivo, u, pedidosDe('air', aVig.desde).length) +
+  html += '</div><aside class="panel"><h2>Antes de enviar</h2><div id="check">' + checkHTML(errs) + '</div>' + tipoChip(u, aMotivo) +
     '<button class="btn primary" id="enviar" ' + (aEnviando ? 'disabled' : '') + '>' + (aEnviando ? 'Enviando…' : (u ? 'Enviar nueva versión' : 'Enviar a BIDCOM')) + '</button>' +
     '<p class="small muted">Si después necesitás corregir algo, volvé a entrar con tu link y enviá de nuevo: queda una nueva versión.</p></aside></div>';
   html += enviosHTML('Mis envíos aéreos', A().envios);
@@ -519,7 +531,7 @@ function bindAir() {
 }
 function enviarAir() {
   var errs = aErrores();
-  if (errs.length) { document.getElementById('check').innerHTML = '<div class="alert bad"><b>Todavía faltan datos.</b></div>' + checkHTML(errs); return; }
+  if (errs.length) { document.getElementById('check').innerHTML = '<div class="alert bad"><b>No se puede enviar: faltan datos.</b> Completá lo que está en rojo.</div>' + checkHTML(errs); return; }
   if (aUltimo() && !aMotivo) { document.getElementById('check').innerHTML = '<div class="alert bad"><b>Indicá qué es este envío:</b> una tarifa mejorada o una corrección.</div>'; return; }
   aEnviando = true; render();
   var payload = { desde: aVig.desde, hasta: aVig.hasta, motivo: aMotivo, archivo: XLI.a && !XLI.a.error ? XLI.a.archivo : '', rutas: copia(aForm.rutas), gastos: {} };
@@ -729,7 +741,7 @@ function leerExcelAir(wb) {
   } else avisos.push('El archivo no trae la hoja de gastos en origen: completalos en el formulario.');
   if (!Object.keys(filas).length) return { error: 'La hoja "' + hoja.n + '" no tiene tarifas cargadas para las rutas de BIDCOM.' };
   A().rutas.forEach(function (r) { if (!filas[r.origen]) avisos.push(r.origen + ': no viene en el archivo, completala a mano.'); });
-  return { filas: filas, gastos: gastos, vig: vig, avisos: avisos };
+  return { filas: filas, gastos: gastos, vig: vig, avisos: avisos, formato: wb.SheetNames.indexOf('Tarifario') >= 0 && wb.SheetNames.indexOf('Gastos en origen') >= 0 ? 'modelo BIDCOM' : 'formato de siempre' };
 }
 
 /* ---------- Subir: precarga el formulario ---------- */
@@ -741,7 +753,17 @@ function subirExcel(p, archivo) {
     try { res = (p === 'm' ? leerExcelMar : leerExcelAir)(XLSX.read(new Uint8Array(lector.result), { type: 'array', cellDates: true })); }
     catch (e) { res = { error: 'No pude leer el archivo. Guardalo como Excel (.xlsx) y probá de nuevo.' }; }
     res.archivo = archivo.name;
-    if (!res.error) aplicarExcel(p, res);
+    if (!res.error) {
+      // Se prueba el archivo sobre una copia: si está incompleto, no se carga y no se puede enviar
+      var antes = { mVig: copia(mVig), aVig: copia(aVig), mForm: mForm, aForm: aForm, mPrecarga: mPrecarga, aPrecarga: aPrecarga, mMotivo: mMotivo, aMotivo: aMotivo };
+      aplicarExcel(p, res);
+      var faltan = (p === 'm' ? mErrores() : aErrores());
+      if (faltan.length && res.formato !== 'modelo BIDCOM') res.faltan = faltan;   // su Excel de siempre: se carga, pero no se puede enviar hasta completar
+      else if (faltan.length) {
+        mVig = antes.mVig; aVig = antes.aVig; mForm = antes.mForm; aForm = antes.aForm; mPrecarga = antes.mPrecarga; aPrecarga = antes.aPrecarga; mMotivo = antes.mMotivo; aMotivo = antes.aMotivo;
+        res = { archivo: archivo.name, error: 'El archivo está incompleto y no se cargó. Completá lo que falta en el Excel (la columna Control te lo marca) y volvé a subirlo.', faltan: faltan };
+      }
+    }
     XLI[p] = res; render(); var el = document.getElementById(p + 'xlres'); if (el) el.scrollIntoView({ block: 'center' });
   };
   lector.readAsArrayBuffer(archivo);
@@ -776,7 +798,9 @@ function excelHTML(p) {
     '<div class="forma"><b>Con tu Excel</b><p class="small muted">Descargá el template (el archivo vacío para completar) y mirá el ejemplo ya completado. Completá el template y subilo: el formulario se completa solo, lo revisás y enviás. También podés subir tu Excel de siempre.</p>' +
     '<div class="acciones"><button type="button" class="btn" data-' + p + 'xl="modelo">Descargar template</button><button type="button" class="btn" data-' + p + 'xl="ejemplo">Descargar ejemplo</button>' +
     '<label class="btn subir">Subir Excel<input type="file" accept=".xlsx,.xls,.xlsm" data-' + p + 'subir hidden></label></div></div></div>' +
-    (R ? '<div id="' + p + 'xlres" style="margin-top:12px">' + (R.error ? '<div class="alert bad"><b>' + esc(R.archivo || 'Archivo') + ':</b> ' + esc(R.error) + '</div>'
+    (R ? '<div id="' + p + 'xlres" style="margin-top:12px">' + (R.error ? '<div class="alert bad"><b>' + esc(R.archivo || 'Archivo') + ':</b> ' + esc(R.error) + (R.faltan ? '<ul>' + R.faltan.slice(0, 15).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + (R.faltan.length > 15 ? '<li>y ' + (R.faltan.length - 15) + ' más</li>' : '') + '</ul>' : '') + '</div>'
+      : R.faltan ? '<div class="alert bad"><b>Cargamos ' + esc(R.resumen) + ' de "' + esc(R.archivo) + '", pero faltan datos.</b> No vas a poder enviar hasta completarlos en el formulario (quedan en rojo):<ul>' +
+          R.faltan.slice(0, 15).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + (R.faltan.length > 15 ? '<li>y ' + (R.faltan.length - 15) + ' más</li>' : '') + '</ul></div>'
       : '<div class="alert ' + (R.avisos.length ? 'warn' : 'ok') + '"><b>Cargamos ' + esc(R.resumen) + ' de "' + esc(R.archivo) + '".</b> Revisá el formulario (lo que falta queda en rojo) y enviá.' +
         (R.avisos.length ? '<ul>' + R.avisos.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '') + '</div>') + '</div>' : '') +
     '<p class="hint" id="' + p + 'xlmsg" style="margin:8px 0 0"></p></section>';
@@ -836,7 +860,7 @@ function specMar(ejemplo) {
     return 'IF(AND(Fletes!' + C('POL') + rf + '="",COUNT(' + col + g0 + ':' + col + g1 + ')=0),"",IF(Fletes!' + C('POL') + rf + '="","Revisar: ruta sin flete",IF(COUNT(' + col + g0 + ':' + col + g1 + ')=0,"Falta","Completa")))'; };
   return { nombre: 'BIDCOM_Cotizacion_Maritima_' + (ejemplo ? 'EJEMPLO' : 'TEMPLATE') + '.xlsx',
     instrucciones: { titulo: 'Cotización marítima BIDCOM', subtitulo: ejemplo ? 'EJEMPLO COMPLETO (datos ficticios): así queda bien cargado. Para cotizar, usá el TEMPLATE (archivo vacío).' : 'MODELO para completar. Cuando termines, subilo en tu link de BIDCOM.',
-      importante: ['Gastos en origen: completalos en la solapa "Gastos en origen", concepto por concepto y por ruta. No envíes un total sin desglose: BIDCOM los usa como base para una negociación específica de gastos en origen.',
+      importante: ['Gastos en origen: completalos en la solapa "Gastos en origen", concepto por concepto y por ruta. No envíes un total sin desglose: BIDCOM los usa como base para una negociación específica de gastos en origen. Los gastos en origen negociados tienen una validez de un mes.',
         'Locales ARG: el valor aceptado por BIDCOM es USD ' + acept + '. La Recarga IMO, si aplica, va en su columna, en USD. No se aceptan Fuel adjust ni Adicional puertos internos.',
         'Contenedores: 20ST, 40ST/40HQ (un solo valor para los dos) y 40NOR, cada uno con su valor y sus días libres.',
         'Una naviera por ruta. Si un recargo no está incluido, indicalo en su columna o en Comentarios, no dentro del nombre de la naviera.'],
@@ -882,7 +906,7 @@ function specAir(ejemplo) {
     return 'IF(Tarifario!' + C('Aerolínea') + rf + '="","",IF(COUNTA(' + col + g0 + ':' + col + g1 + ')=0,"Falta","Completa"))'; };
   return { nombre: 'BIDCOM_Tarifario_Aereo_' + (ejemplo ? 'EJEMPLO' : 'TEMPLATE') + '.xlsx',
     instrucciones: { titulo: 'Tarifario aéreo BIDCOM', subtitulo: ejemplo ? 'EJEMPLO COMPLETO (datos ficticios): así queda bien cargado. Para cotizar, usá el TEMPLATE (archivo vacío).' : 'MODELO para completar. Cuando termines, subilo en tu link de BIDCOM.',
-      importante: A().notas.length ? A().notas : ['Completá los gastos en origen de cada aeropuerto, concepto por concepto.'],
+      importante: (A().notas.length ? A().notas : ['Completá los gastos en origen de cada aeropuerto, concepto por concepto.']).concat(['Los gastos en origen negociados tienen una validez de un mes.']),
       pasos: ['Arriba de la solapa Tarifario completá Vigencia desde y Vigencia hasta: 1 semana, 15 días o 1 mes.',
         'Tarifario: las rutas grises son las que pide BIDCOM. Completá aerolínea, tránsito, mínimo y la tarifa por kg de cada break (45 kg es opcional).',
         'Fuel e IMO en USD por kg. Si el IMO es a pedido, escribí "A pedido".',
