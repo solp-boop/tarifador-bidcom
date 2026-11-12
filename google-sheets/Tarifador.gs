@@ -102,7 +102,7 @@ var Tarifador = (function () {
     ['vigente', 'Última versión'], ['tipo', 'Tipo de tarifa'], ['motivo', 'Motivo'], ['desde', 'Vigencia desde'], ['hasta', 'Vigencia hasta'],
     ['origen', 'Origen (POL / aeropuerto)'], ['destino', 'Destino (POD)'], ['carrier', 'Naviera / Aerolínea'], ['ctnr', 'Contenedor'],
     ['flete', 'Flete (USD/ctnr o USD/kg)'], ['total', 'Total comparable'], ['locales', 'Locales ARG / gastos destino USD'], ['gorigen', 'Gastos en origen USD'],
-    ['menor', 'Menor de la ronda'], ['vsMenor', 'Vs la menor'], ['mediana', 'Mediana histórica'], ['target', 'Target sugerido'], ['semaforo', 'Vs histórico'],
+    ['menor', 'Menor de la ronda'], ['vsMenor', 'Vs la menor'], ['mediana', 'Mediana histórica'], ['target', 'Target sugerido'], ['motivoTarget', 'Por qué este target'], ['semaforo', 'Vs histórico'],
     ['estado', 'Estado'], ['decision', 'Decisión del team'], ['targetPedir', 'Target a pedir'], ['mensaje', 'Mensaje al agente'], ['enviada', 'Decisión enviada'],
     ['ahorro', 'Ahorro vs inicial'], ['ahorroPct', 'Ahorro vs inicial %'], ['aviso', 'Aviso de vencimiento'], ['detalle', 'Detalle (no editar)'], ['historial', 'Historial']];
   var K = {}; CZ.forEach(function (c, i) { K[c[0]] = i; });
@@ -662,6 +662,7 @@ var Tarifador = (function () {
     var p = function (x) { return Math.round(x * 1000) / 10 + '%'; };
     sh.getRange(1, K.target + 1).setNote('Sobre el flete solamente. Regla: a quien cotizó el menor flete se le pide ' + p(cfg.reduccionMenor) + ' menos ("Mejora a pedir a quien cotizó la menor" en Ajustes); al resto, igualar la menor. ' +
       'La ronda incluye lo cargado a mano en la base madre (misma ruta y contenedor, vigencias que se superponen). Nunca supera la menor tarifa recibida. Podés escribir otro valor en "Target a pedir".');
+    sh.getRange(1, K.motivoTarget + 1).setNote('Contra qué oferta se calculó el target: agente, naviera, valor, puertos, vigencia y fuente (cotizador o base madre). Solo para el team: nunca se le dice al agente de quién es.');
     sh.getRange(1, K.semaforo + 1).setNote('Flete contra la mediana histórica del flete menos la meta de ahorro (' + p(cfg.reduccion) + ', "Meta de ahorro vs histórico" en Ajustes). Verde ≤ objetivo · Amarillo hasta +5% · Naranja hasta +15% · Rojo más. No define el target.');
   }
   function recalcular(cfg, sh, datos) {
@@ -670,7 +671,7 @@ var Tarifador = (function () {
     if (!datos.length) return datos;
     var red = cfg.reduccion, redM = cfg.reduccionMenor, hist = null, base = null, vig = [];
     datos.forEach(function (x, i) { if (x[K.vigente] === 'SI' && x[K.id] && num(x[K.flete]) > 0) vig.push(i); });
-    var bloque = datos.map(function (x) { return [x[K.menor], x[K.vsMenor], x[K.mediana], x[K.target], x[K.semaforo]]; });
+    var bloque = datos.map(function (x) { return [x[K.menor], x[K.vsMenor], x[K.mediana], x[K.target], x[K.motivoTarget], x[K.semaforo]]; });
     var ahorros = datos.map(function (x) { return [x[K.ahorro], x[K.ahorroPct]]; });
     vig.forEach(function (i) {
       var x = datos[i], tot = num(x[K.flete]), d0 = aDia(x[K.desde]), h0 = aDia(x[K.hasta]), mar = x[K.modo] === MODO.MAR;
@@ -678,20 +679,23 @@ var Tarifador = (function () {
         var y = datos[j];
         return y[K.modo] === x[K.modo] && claveTexto(y[K.origen]) === claveTexto(x[K.origen]) && claveTexto(y[K.destino]) === claveTexto(x[K.destino]) &&
           (!mar || claveTexto(y[K.ctnr]) === claveTexto(x[K.ctnr])) && aDia(y[K.desde]) <= h0 && aDia(y[K.hasta]) >= d0;
-      }).map(function (j) { return num(datos[j][K.flete]); });
+      }).map(function (j) { var y = datos[j]; return { valor: num(y[K.flete]), agente: String(y[K.ffww]), linea: String(y[K.carrier] || ''), polTxt: String(y[K.origen]), podTxt: String(y[K.destino]),
+        desde: aDia(y[K.desde]), hasta: aDia(y[K.hasta]), fuente: 'cotizador', propia: j === i }; });
       if (mar) {                                                        // suma lo cargado en la base madre (también a mano) para esa ruta, contenedor y vigencia
         if (base === null) base = baseRondaMar(cfg);
         var pol = claveTexto(x[K.origen]), pod = claveTexto(x[K.destino]);
-        base.forEach(function (b) { if (b.pol === pol && (!b.pod || b.pod === pod) && b.ctnr === x[K.ctnr] && b.desde <= h0 && b.hasta >= d0) ronda.push(b.valor); });
+        base.forEach(function (b) { if (b.pol === pol && (!b.pod || b.pod === pod) && b.ctnr === x[K.ctnr] && b.desde <= h0 && b.hasta >= d0) ronda.push(b); });
       }
-      var L = Math.min.apply(null, ronda), esMenor = tot <= L + 1e-9;
+      var L = Math.min.apply(null, ronda.map(function (o) { return o.valor; })), esMenor = tot <= L + 1e-9;
       // A quien cotizó la menor: mejora chica (Ajustes, 5%). Al resto: igualar la menor. Nunca por encima de la menor recibida.
       var target = redondear(Math.min(esMenor ? tot * (1 - redM) : L, L), mar);
       var med = '';
       if (mar) { if (hist === null) hist = historicoMar(cfg); med = medianaMar(hist, x); }
       else med = medianaAir(datos, vig, x);
       var sem = med ? semaforo(tot, med * (1 - red)) : 'Sin histórico';
-      bloque[i] = [esMenor ? (ronda.filter(function (v) { return Math.abs(v - tot) > 1e-9; }).length ? 'SI' : 'SI (única)') : '', esMenor ? 0 : Math.round((tot / L - 1) * 10000) / 10000, med === '' ? '' : redondear(med, mar), target, sem];
+      var otros = ronda.filter(function (o) { return !o.propia && claveTexto(o.agente) !== claveTexto(x[K.ffww]); });
+      var motivo = motivoTarget(x, mar, esMenor, otros, L, redM);
+      bloque[i] = [esMenor ? (otros.length ? 'SI' : 'SI (única)') : '', esMenor ? 0 : Math.round((tot / L - 1) * 10000) / 10000, med === '' ? '' : redondear(med, mar), target, motivo, sem];
     });
     // Ahorro de cada tarifa negociada contra la inicial del mismo agente, vigencia y línea
     datos.forEach(function (x, i) {
@@ -706,10 +710,25 @@ var Tarifador = (function () {
       var a = num(ini[K.total]) - num(x[K.total]);
       ahorros[i] = [redondear(a, x[K.modo] === MODO.MAR), Math.round(a / num(ini[K.total]) * 10000) / 10000];
     });
-    sh.getRange(2, K.menor + 1, datos.length, 5).setValues(bloque);
+    sh.getRange(2, K.menor + 1, datos.length, 6).setValues(bloque);
     sh.getRange(2, K.ahorro + 1, datos.length, 2).setValues(ahorros);
-    datos.forEach(function (x, i) { for (var c = 0; c < 5; c++) x[K.menor + c] = bloque[i][c]; x[K.ahorro] = ahorros[i][0]; x[K.ahorroPct] = ahorros[i][1]; });
+    datos.forEach(function (x, i) { for (var c = 0; c < 6; c++) x[K.menor + c] = bloque[i][c]; x[K.ahorro] = ahorros[i][0]; x[K.ahorroPct] = ahorros[i][1]; });
     return datos;
+  }
+  // Explica de dónde sale el target: contra qué oferta (agente, puerto, naviera, valor, vigencia, fuente). Solo para el team.
+  function motivoTarget(x, mar, esMenor, otros, L, redM) {
+    var ruta = x[K.origen] + ' → ' + x[K.destino] + (mar && x[K.ctnr] ? ' ' + x[K.ctnr] : '');
+    var desc = function (o) { var f = function (t) { return fechaCorta(new Date(t)); };
+      return (o.agente || 'Sin agente') + (o.linea ? ' · ' + o.linea : '') + ' · ' + valorTxt(o.valor, mar) + ' · ' + (o.polTxt || '') + ' → ' + (o.podTxt || '') + ' · vig. ' + f(o.desde) + '–' + f(o.hasta) + ' (' + o.fuente + ')'; };
+    var pct = Math.round(redM * 1000) / 10 + '%';
+    if (esMenor) {
+      if (!otros.length) return 'Única oferta para ' + ruta + ' en esa vigencia: se pide −' + pct + ' sobre su flete.';
+      var seg = otros.slice().sort(function (a, b) { return a.valor - b.valor; })[0];
+      return 'Cotizó la menor de ' + ruta + ': se pide −' + pct + '. 2ª mejor: ' + desc(seg) + ' (' + otros.length + ' oferta' + (otros.length === 1 ? '' : 's') + ' más).';
+    }
+    var m = otros.filter(function (o) { return Math.abs(o.valor - L) < 1e-9; }).sort(function (a, b) { return a.fuente === 'cotizador' ? -1 : 1; })[0];
+    if (!m) return 'Igualar la menor de ' + ruta + ': ' + valorTxt(L, mar) + ' (otra versión de este mismo agente para esa vigencia).';
+    return 'Igualar la menor de ' + ruta + ': ' + desc(m) + '. Ofertas en la ronda: ' + (otros.length + 1) + '.';
   }
   function recalcularMenu() { recalcular(); SpreadsheetApp.getUi().alert('Listo. Se recalculó la comparación de todas las tarifas vigentes.'); }
   function redondear(v, mar) { return mar ? Math.round(v) : Math.round(v * 100) / 100; }
@@ -751,7 +770,8 @@ var Tarifador = (function () {
           var v = function (c) { return M[c] ? r[M[c] - 1] : ''; }, flete = num(v('flete'));
           if (!(flete > 0) || !(v('desde') instanceof Date)) return;
           var d = aDia(v('desde')), h = v('hasta') instanceof Date ? aDia(v('hasta')) : d + 14 * 86400000;
-          out.push({ pol: claveTexto(v('pol')), pod: claveTexto(v('pod')), ctnr: tipoCtnr(v('ctnr')), desde: d, hasta: h, valor: flete });
+          out.push({ pol: claveTexto(v('pol')), pod: claveTexto(v('pod')), ctnr: tipoCtnr(v('ctnr')), desde: d, hasta: h, valor: flete,
+            agente: String(v('ffww') || '').trim(), linea: String(v('linea') || '').trim(), polTxt: String(v('pol') || '').trim(), podTxt: String(v('pod') || '').trim(), fuente: 'base madre · ' + nombre });
         });
       } catch (e) { }
     });
