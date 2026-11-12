@@ -51,7 +51,8 @@ var Tarifador = (function () {
   var AJ = [
     ['GENERAL'],
     ['teamMails', 'Mails del team (separados por coma)', '', 'Reciben un aviso cada vez que un agente carga o responde, y copia de los avisos de vencimiento.'],
-    ['reduccion', 'Reducción a pedir a quien cotizó la menor', 0.15, 'Target sugerido: a quien cotizó la menor de la ronda se le pide esta reducción; al resto, igualar la menor.'],
+    ['reduccion', 'Meta de ahorro vs histórico', 0.15, 'Semáforo "Vs histórico": la tarifa ideal es la mediana histórica menos este %. No define el target que se le pide al agente.'],
+    ['reduccionMenor', 'Mejora a pedir a quien cotizó la menor', 0.05, 'Target sugerido: a quien cotizó el menor flete se le pide este % menos; al resto, igualar la menor. El target nunca supera la menor tarifa recibida.'],
     ['mostrarTarget', 'Decirle el valor objetivo al agente al pedir mejora', 'SI', 'SI = el mail y el formulario muestran el valor a alcanzar. NO = solo se pide mejorar. Nunca se dice que viene de otro agente.'],
     ['diasAviso', 'Aviso de vencimiento: días antes', 5, 'El agente recibe un mail para cargar la tarifa nueva (con copia al team). Se activa una vez desde el menú.'],
     ['baseUrl', 'Base madre: link de la planilla', '', 'Vacío = esta misma planilla.'],
@@ -172,7 +173,7 @@ var Tarifador = (function () {
       var f = FILA_DATOS + i;
       if (a.length === 1) { sh.getRange(f, 1, 1, 3).setFontWeight('bold').setBackground('#E2EFDA'); return; }
       sh.getRange(f, 2).setBackground('#FFF2CC');
-      if (a[0] === 'reduccion') sh.getRange(f, 2).setNumberFormat('0%');
+      if (a[0] === 'reduccion' || a[0] === 'reduccionMenor') sh.getRange(f, 2).setNumberFormat('0%');
       if (a[0] === 'mostrarTarget' || a[0] === 'auto') sh.getRange(f, 2).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['SI', 'NO'], true).build());
     });
     sh.getRange(FILA_DATOS, 3, filas.length, 1).setWrap(true).setFontColor('#5B6876');
@@ -230,7 +231,7 @@ var Tarifador = (function () {
     sh.getRange(1, K.id + 1).setNote('Una fila por tarifa recibida (marítimo: ruta y contenedor; aéreo: ruta). Nunca se borra: cada envío queda con su versión. Última versión = SI es lo que vale hoy para ese agente y esa vigencia.');
     sh.getRange(1, K.total + 1).setNote('Marítimo: USD por contenedor = flete + Recarga IMO (Locales ARG va aparte). Aéreo: all-in USD/kg al peso de referencia.');
     sh.getRange(1, K.menor + 1).setNote('Se compara solo el flete (sin IMO, locales ni gastos). Ronda = mismas rutas (y contenedor) con vigencias que se superponen. SI = cotizó el menor flete. "SI (única)" = es la única oferta.');
-    sh.getRange(1, K.target + 1).setNote('Sobre el flete solamente. Regla: a quien cotizó el menor flete se le pide la reducción de Ajustes (15%); al resto, igualar el menor flete. Podés escribir otro valor en "Target a pedir".');
+    sh.getRange(1, K.target + 1).setNote('Sobre el flete solamente. A quien cotizó el menor flete se le pide la mejora de Ajustes (5%); al resto, igualar la menor. Cuenta también lo cargado a mano en la base madre y nunca supera la menor tarifa recibida. Podés escribir otro valor en "Target a pedir".');
     sh.getRange(1, K.semaforo + 1).setNote('Flete contra la mediana histórica del flete × (1 − reducción). Verde ≤ objetivo · Amarillo hasta +5% · Naranja hasta +15% · Rojo más.');
     sh.getRange(1, K.decision + 1).setNote('Elegí Aprobar, Pedir mejora o Descartar y después usá el menú Tarifador BIDCOM > Enviar decisiones del team. Al agente no le llega nada hasta ese paso.');
     sh.getRange(1, K.targetPedir + 1).setNote('Opcional. Vacío = se usa el target sugerido.');
@@ -327,10 +328,11 @@ var Tarifador = (function () {
     d.forEach(function (r) { if (String(r[0]).trim()) porEtiqueta[claveTexto(r[0])] = r[1]; });
     var v = {};
     AJ.forEach(function (a) { if (a.length > 1) { var x = porEtiqueta[claveTexto(a[1])]; v[a[0]] = x === undefined ? a[2] : x; } });
-    var red = num(v.reduccion); red = isNaN(red) || red === '' ? 0.15 : red > 1 ? red / 100 : red;
+    var pct = function (x, def) { var n = num(String(x === undefined ? '' : x).replace('%', '').trim()); return isNaN(n) || n === '' ? def : n >= 1 ? n / 100 : n; };
+    var red = pct(v.reduccion, 0.15), redM = pct(v.reduccionMenor, 0.05);
     var cfg = {
       teamMails: String(v.teamMails || '').split(/[,;\s]+/).map(function (x) { return x.trim(); }).filter(function (x) { return /@/.test(x); }),
-      reduccion: red, mostrarTarget: String(v.mostrarTarget).trim().toUpperCase() !== 'NO', diasAviso: num(v.diasAviso) >= 0 && v.diasAviso !== '' ? num(v.diasAviso) : 5,
+      reduccion: red, reduccionMenor: redM, mostrarTarget: String(v.mostrarTarget).trim().toUpperCase() !== 'NO', diasAviso: num(v.diasAviso) >= 0 && v.diasAviso !== '' ? num(v.diasAviso) : 5,
       baseUrl: String(v.baseUrl || '').trim(), auto: String(v.auto).trim().toUpperCase() !== 'NO',
       marIni: String(v.marIni || '').trim(), marNeg: String(v.marNeg || '').trim(), locales: num(v.locales) || 800,
       formUrl: String(v.formUrl || '').trim(), gastosUrl: String(v.gastosUrl || '').trim(), gastosHoja: String(v.gastosHoja || '').trim() || 'Concatenado de GS (ffww)', gastosMeses: num(v.gastosMeses) > 0 ? num(v.gastosMeses) : 1, airIni: String(v.airIni || '').trim(), airNeg: String(v.airNeg || '').trim(), imoTexto: String(v.imoTexto || '').trim() || 'Upon RQST', peso: num(v.peso) || 500
@@ -656,7 +658,7 @@ var Tarifador = (function () {
   function recalcular(cfg, sh, datos) {
     cfg = cfg || leerAjustes(); sh = sh || hojaCotiz(); datos = datos || valoresCotiz(sh);
     if (!datos.length) return datos;
-    var red = cfg.reduccion, hist = null, vig = [];
+    var red = cfg.reduccion, redM = cfg.reduccionMenor, hist = null, base = null, vig = [];
     datos.forEach(function (x, i) { if (x[K.vigente] === 'SI' && x[K.id] && num(x[K.flete]) > 0) vig.push(i); });
     var bloque = datos.map(function (x) { return [x[K.menor], x[K.vsMenor], x[K.mediana], x[K.target], x[K.semaforo]]; });
     var ahorros = datos.map(function (x) { return [x[K.ahorro], x[K.ahorroPct]]; });
@@ -667,13 +669,19 @@ var Tarifador = (function () {
         return y[K.modo] === x[K.modo] && claveTexto(y[K.origen]) === claveTexto(x[K.origen]) && claveTexto(y[K.destino]) === claveTexto(x[K.destino]) &&
           (!mar || claveTexto(y[K.ctnr]) === claveTexto(x[K.ctnr])) && aDia(y[K.desde]) <= h0 && aDia(y[K.hasta]) >= d0;
       }).map(function (j) { return num(datos[j][K.flete]); });
+      if (mar) {                                                        // suma lo cargado en la base madre (también a mano) para esa ruta, contenedor y vigencia
+        if (base === null) base = baseRondaMar(cfg);
+        var pol = claveTexto(x[K.origen]), pod = claveTexto(x[K.destino]);
+        base.forEach(function (b) { if (b.pol === pol && (!b.pod || b.pod === pod) && b.ctnr === x[K.ctnr] && b.desde <= h0 && b.hasta >= d0) ronda.push(b.valor); });
+      }
       var L = Math.min.apply(null, ronda), esMenor = tot <= L + 1e-9;
-      var target = redondear(esMenor ? L * (1 - red) : L, mar);
+      // A quien cotizó la menor: mejora chica (Ajustes, 5%). Al resto: igualar la menor. Nunca por encima de la menor recibida.
+      var target = redondear(Math.min(esMenor ? tot * (1 - redM) : L, L), mar);
       var med = '';
       if (mar) { if (hist === null) hist = historicoMar(cfg); med = medianaMar(hist, x); }
       else med = medianaAir(datos, vig, x);
       var sem = med ? semaforo(tot, med * (1 - red)) : 'Sin histórico';
-      bloque[i] = [esMenor ? (ronda.length > 1 ? 'SI' : 'SI (única)') : '', esMenor ? 0 : Math.round((tot / L - 1) * 10000) / 10000, med === '' ? '' : redondear(med, mar), target, sem];
+      bloque[i] = [esMenor ? (ronda.filter(function (v) { return Math.abs(v - tot) > 1e-9; }).length ? 'SI' : 'SI (única)') : '', esMenor ? 0 : Math.round((tot / L - 1) * 10000) / 10000, med === '' ? '' : redondear(med, mar), target, sem];
     });
     // Ahorro de cada tarifa negociada contra la inicial del mismo agente, vigencia y línea
     datos.forEach(function (x, i) {
@@ -718,6 +726,26 @@ var Tarifador = (function () {
           valor: flete };
       }).filter(Boolean);
     } catch (e) { return []; }
+  }
+  // Tarifas marítimas de la base madre (SIN NEGOCIAR y Negociado), también las cargadas a mano, para la menor de la ronda
+  function baseRondaMar(cfg) {
+    var out = [];
+    [cfg.marIni, cfg.marNeg].forEach(function (nombre) {
+      if (!nombre) return;
+      try {
+        var hoja = abrirDestino({ url: cfg.baseUrl }, nombre), enc = mapearEncabezados(hoja, MAPA_MARITIMO);
+        if (!enc || !enc.mapa.flete || !enc.mapa.pol || !enc.mapa.desde) return;
+        var M = enc.mapa, ultima = hoja.getLastRow(), inicio = Math.max(enc.fila + 1, ultima - 3999);
+        if (ultima < inicio) return;
+        hoja.getRange(inicio, 1, ultima - inicio + 1, hoja.getLastColumn()).getValues().forEach(function (r) {
+          var v = function (c) { return M[c] ? r[M[c] - 1] : ''; }, flete = num(v('flete'));
+          if (!(flete > 0) || !(v('desde') instanceof Date)) return;
+          var d = aDia(v('desde')), h = v('hasta') instanceof Date ? aDia(v('hasta')) : d + 14 * 86400000;
+          out.push({ pol: claveTexto(v('pol')), pod: claveTexto(v('pod')), ctnr: tipoCtnr(v('ctnr')), desde: d, hasta: h, valor: flete });
+        });
+      } catch (e) { }
+    });
+    return out;
   }
   function medianaMar(hist, x) {
     var d0 = aDia(x[K.desde]), min = d0 - 180 * 86400000, pol = claveTexto(x[K.origen]), pod = claveTexto(x[K.destino]);
