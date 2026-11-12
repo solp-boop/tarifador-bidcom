@@ -70,6 +70,8 @@ var Tarifador = (function () {
     ['gastosUrl', 'Base de gastos en origen: link de la planilla', 'https://docs.google.com/spreadsheets/d/1mNQlFxmFs4SjVlhDPuoxCafoF68qMECQFYNUgISOYrc/edit', 'Los gastos en origen marítimos se pegan acá, concepto por concepto. Vacío = no se pegan.'],
     ['gastosHoja', 'Pestaña de gastos en origen', 'Concatenado de GS (ffww)', 'Una fila por agente, puerto, contenedor y concepto. Si la fila ya existe se actualiza; si no, se agrega abajo.'],
     ['gastosMeses', 'Validez de los gastos en origen (meses)', 1, 'Se escribe en la columna de validez. Unos días antes, el agente recibe un aviso para volver a cotizarlos.'],
+    ['PEDIDOS DE TARIFAS'],
+    ['diasRecordatorio', 'Recordatorio: días antes de la fecha límite', 2, 'Si el agente todavía no cargó, le llega un recordatorio (con copia al team). Al pasar la fecha límite, el team recibe el resumen de quién cotizó y quién no.'],
     ['LINK'],
     ['formUrl', 'Link del formulario (aplicación web)', '', 'La URL /exec de Implementar > Gestionar implementaciones. Vacío = la que informa Google. Con esta se arman los links de los agentes.']
   ];
@@ -126,7 +128,8 @@ var Tarifador = (function () {
       .addItem('Panel de tarifas (KPIs, agentes, rutas)', 'tarifador_panel')
       .addItem('Enviar decisiones del team (aprobar / pedir mejora)', 'tarifador_enviarDecisiones')
       .addItem('Recalcular comparación', 'tarifador_recalcular')
-      .addItem('Revisar vencimientos ahora', 'tarifador_avisarVencimientos')
+      .addItem('Pedir tarifas a agentes activos', 'tarifador_pedirTarifas')
+      .addItem('Revisar vencimientos y pedidos ahora', 'tarifador_avisarVencimientos')
       .addItem('Ir a TARIFADOR Cotizaciones', 'tarifador_irACotizaciones')
       .addToUi();
   }
@@ -332,7 +335,7 @@ var Tarifador = (function () {
     var red = pct(v.reduccion, 0.15), redM = pct(v.reduccionMenor, 0.05);
     var cfg = {
       teamMails: String(v.teamMails || '').split(/[,;\s]+/).map(function (x) { return x.trim(); }).filter(function (x) { return /@/.test(x); }),
-      reduccion: red, reduccionMenor: redM, mostrarTarget: String(v.mostrarTarget).trim().toUpperCase() !== 'NO', diasAviso: num(v.diasAviso) >= 0 && v.diasAviso !== '' ? num(v.diasAviso) : 5,
+      reduccion: red, reduccionMenor: redM, mostrarTarget: String(v.mostrarTarget).trim().toUpperCase() !== 'NO', diasAviso: num(v.diasAviso) >= 0 && v.diasAviso !== '' ? num(v.diasAviso) : 5, diasRecordatorio: num(v.diasRecordatorio) >= 0 && v.diasRecordatorio !== '' && v.diasRecordatorio !== undefined ? num(v.diasRecordatorio) : 2,
       baseUrl: String(v.baseUrl || '').trim(), auto: String(v.auto).trim().toUpperCase() !== 'NO',
       marIni: String(v.marIni || '').trim(), marNeg: String(v.marNeg || '').trim(), locales: num(v.locales) || 800,
       formUrl: String(v.formUrl || '').trim(), gastosUrl: String(v.gastosUrl || '').trim(), gastosHoja: String(v.gastosHoja || '').trim() || 'Concatenado de GS (ffww)', gastosMeses: num(v.gastosMeses) > 0 ? num(v.gastosMeses) : 1, airIni: String(v.airIni || '').trim(), airNeg: String(v.airNeg || '').trim(), imoTexto: String(v.imoTexto || '').trim() || 'Upon RQST', peso: num(v.peso) || 500
@@ -967,7 +970,7 @@ var Tarifador = (function () {
   }
   function avisarVencimientosMenu() {
     var n = avisarVencimientos();
-    SpreadsheetApp.getUi().alert(n ? 'Se mandaron ' + n + ' aviso(s) de vencimiento.' : 'No hay tarifas por vencer que necesiten aviso.');
+    SpreadsheetApp.getUi().alert(n ? 'Se mandaron ' + n + ' mail(s): pedidos por vencimiento, recordatorios o resúmenes de cierre.' : 'No hay pedidos, recordatorios ni cierres pendientes.');
   }
   function avisarVencimientos() {
     var cfg = leerAjustes(), sh = hojaCotiz(), datos = valoresCotiz(sh), hoy = aDia(new Date()), grupos = {}, ag = agentesPorNombre(), enviados = 0;
@@ -982,23 +985,127 @@ var Tarifador = (function () {
       var filas = g.filas.filter(function (i) { return aDia(datos[i][K.hasta]) === g.max; });
       if (filas.some(function (i) { return datos[i][K.aviso]; })) return;           // ya se avisó esta vigencia
       var a = ag[g.ffww]; if (!a || !a.activo) return;
-      var mar = g.modo === MODO.MAR, hasta = datos[filas[0]][K.hasta], rutas = {};
-      filas.forEach(function (i) { var x = datos[i]; rutas[x[K.origen] + ' → ' + x[K.destino] + (x[K.carrier] ? ' (' + x[K.carrier] + ')' : '')] = true; });
-      var html = htmlEnvolver('<p>Hola ' + esc(a.contacto || a.nombre) + ':</p><p>Tu tarifa <b>' + esc(g.modo.toLowerCase()) + '</b> para BIDCOM vence el <b>' + esc(fechaLarga(hasta)) + '</b>' +
-        (dias === 0 ? ' (hoy)' : ' (faltan ' + dias + ' día' + (dias === 1 ? '' : 's') + ')') + '. Cargala para la próxima vigencia así seguimos cotizando con vos.</p>' +
-        '<ul>' + Object.keys(rutas).map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('') + '</ul>' +
-        htmlBoton(linkDe(a), 'Cargar tarifa nueva') + '<p style="font-size:12px;color:#5b6876">Es tu link personal de siempre. Tu última cotización aparece precargada.</p>' +
-        (a.email ? '' : '<p style="color:#b3261e"><b>Para el team:</b> este agente no tiene email cargado en ' + esc(HOJA.AJUSTES) + '. Reenviale este aviso.</p>'));
-      var para = a.email || cfg.teamMails.join(',');
-      if (!para) { registrar('Sistema', 'No se pudo avisar vencimiento', g.ffww + ': sin email del agente ni del team'); return; }
-      mandarMail({ to: para, cc: a.email ? cfg.teamMails.join(',') : '', replyTo: cfg.teamMails[0] || '', subject: 'BIDCOM · Tu tarifa ' + (mar ? 'marítima' : 'aérea') + ' vence el ' + fechaCorta(hasta) + ': cargá la nueva', html: html });
+      var hasta = datos[filas[0]][K.hasta], dHasta = aFecha(hasta);
+      var desde = new Date(dHasta.getFullYear(), dHasta.getMonth(), dHasta.getDate() + 1);
+      var limite = new Date(Math.max(aDia(new Date()), new Date(dHasta.getFullYear(), dHasta.getMonth(), dHasta.getDate() - 1).getTime()));
+      if (!a.email && !cfg.teamMails.length) { registrar('Sistema', 'No se pudo pedir tarifas', g.ffww + ': sin email del agente ni del team'); return; }
+      mailPedido(cfg, a, g.modo, desde, limite, hasta, false);
+      guardarPedidos(leerPedidos().concat([{ lote: 'V' + fecha(new Date()), origen: 'Vencimiento', creado: Date.now(), modo: g.modo, agente: a.nombre, desde: desde.getTime(), limite: limite.getTime() }]));
       var marca = 'Avisado ' + fechaHora(new Date()) + (a.email ? '' : ' (al team, sin email del agente)');
       filas.forEach(function (i) { sh.getRange(i + 2, K.aviso + 1).setValue(marca); datos[i][K.aviso] = marca; });
-      registrar('Sistema', 'Aviso de vencimiento', g.ffww + ' · ' + g.modo + ' · vence ' + fechaCorta(hasta));
+      registrar('Sistema', 'Pedido de tarifas (vencimiento)', g.ffww + ' · ' + g.modo + ' · vence ' + fechaCorta(hasta) + ' · límite ' + fechaCorta(limite));
       enviados++;
     });
+    try { enviados += procesarPedidos(cfg); } catch (eP) { registrar('Sistema', 'Error en los pedidos de tarifas', String(eP && eP.message || eP)); }
     try { enviados += avisarVencimientoGastos(cfg); } catch (eG) { registrar('Sistema', 'Error en el aviso de gastos en origen', String(eG && eG.message || eG)); }
     return enviados;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Pedidos de tarifas: automático (N días antes del vencimiento) o     */
+  /* manual desde el menú. Recordatorio antes de la fecha límite y       */
+  /* resumen al team al cerrar. Se guardan en las propiedades del script. */
+  /* ------------------------------------------------------------------ */
+  var PROP_PEDIDOS = 'TARIFADOR_PEDIDOS';
+  function leerPedidos() { try { return JSON.parse(PropertiesService.getScriptProperties().getProperty(PROP_PEDIDOS) || '[]'); } catch (e) { return []; } }
+  function guardarPedidos(l) {
+    var corte = Date.now() - 60 * 86400000;
+    l = l.filter(function (p) { return !p.cerrado || p.limite > corte; });
+    PropertiesService.getScriptProperties().setProperty(PROP_PEDIDOS, JSON.stringify(l));
+  }
+  function modoTxt(m) { return m === MODO.MAR ? 'marítimas' : 'aéreas'; }
+  // El mail del pedido. recordatorio = versión corta. vence = fecha en que vence la tarifa actual (solo pedidos automáticos)
+  function mailPedido(cfg, a, modo, desde, limite, vence, recordatorio) {
+    var mar = modo === MODO.MAR, desdeTxt = desde ? fechaLarga(desde) : '', limTxt = fechaLarga(limite), html;
+    if (recordatorio) {
+      html = '<p>Hola ' + esc(a.contacto || a.nombre) + ':</p><p>Todavía no recibimos tus tarifas <b>' + modoTxt(modo) + '</b>' + (desdeTxt ? ' desde el <b>' + esc(desdeTxt) + '</b>' : '') +
+        '. Te recordamos que la fecha límite es el <b>' + esc(limTxt) + '</b>.</p>' + htmlBoton(linkDe(a), 'Cargar tarifas') +
+        '<p>Si no tenés tarifa para alguna ruta, dejala sin cargar. Cualquier duda respondé este mail.</p><p>¡Gracias!<br>Equipo de Logística Internacional – BIDCOM</p>';
+    } else {
+      html = '<p>Hola ' + esc(a.contacto || a.nombre) + ':</p>' +
+        (vence ? '<p>Las tarifas ' + modoTxt(modo) + ' que tenemos cargadas de ' + esc(a.nombre) + ' vencen el <b>' + esc(fechaLarga(vence)) + '</b>. ' : '<p>') +
+        'Te pedimos que nos envíes tus tarifas ' + modoTxt(modo) + (desdeTxt ? ' con vigencia desde el <b>' + esc(desdeTxt) + '</b>' : '') + '.</p>' +
+        '<p style="font-size:15px"><b>Fecha límite para enviarlas: ' + esc(limTxt) + '.</b></p>' +
+        '<p>Cargalas en tu cotizador, a mano o subiendo el template de Excel:</p>' + htmlBoton(linkDe(a), 'Ir a mi cotizador') +
+        '<p>Para tener en cuenta:</p><ul><li>Completá todos los campos obligatorios: si falta alguno, el cotizador no te deja enviar.</li>' +
+        '<li>Incluí tus gastos en origen.' + (mar ? ' Los gastos en origen negociados tienen una validez de 1 mes.' : '') + '</li>' +
+        '<li>Si no tenés tarifa para alguna ruta, dejala sin cargar.</li></ul>' +
+        '<p>Cualquier duda, respondé este mail.</p><p>¡Gracias!<br>Equipo de Logística Internacional – BIDCOM</p>';
+    }
+    if (!a.email) html += '<p style="color:#b3261e"><b>Para el team:</b> este agente no tiene email cargado en ' + esc(HOJA.AJUSTES) + '. Reenviale este mail.</p>';
+    var asunto = 'BIDCOM | ' + (recordatorio ? 'Recordatorio: pedido' : 'Pedido') + ' de tarifas ' + modoTxt(modo) + (desdeTxt ? ' – vigencia desde el ' + desdeTxt : '') + (recordatorio ? ' (límite ' + fechaCorta(limite) + ')' : '');
+    mandarMail({ to: a.email || cfg.teamMails.join(','), cc: a.email ? cfg.teamMails.join(',') : '', replyTo: cfg.teamMails[0] || '', subject: asunto, html: htmlEnvolver(html) });
+  }
+  // ¿El agente mandó algo de ese modo después de recibir el pedido?
+  function respondioPedido(datos, p) {
+    return datos.some(function (x) { return x[K.ffww] === p.agente && x[K.modo] === p.modo && x[K.recibido] instanceof Date && x[K.recibido].getTime() >= p.creado; });
+  }
+  function procesarPedidos(cfg) {
+    var lista = leerPedidos(); if (!lista.length) return 0;
+    var datos = valoresCotiz(hojaCotiz()), hoy = aDia(new Date()), ag = agentesPorNombre(), enviados = 0, cerrar = {};
+    lista.forEach(function (p) {
+      if (p.cerrado) return;
+      if (!p.respondio && respondioPedido(datos, p)) p.respondio = fechaHora(new Date());
+      var dias = Math.round((aDia(new Date(p.limite)) - hoy) / 86400000), a = ag[p.agente];
+      if (!p.respondio && !p.recordado && dias >= 0 && dias <= cfg.diasRecordatorio && a && a.activo && (a.email || cfg.teamMails.length)) {
+        mailPedido(cfg, a, p.modo, p.desde ? new Date(p.desde) : null, new Date(p.limite), null, true);
+        p.recordado = fechaHora(new Date()); enviados++;
+        registrar('Sistema', 'Recordatorio de pedido de tarifas', p.agente + ' · ' + p.modo + ' · límite ' + fechaCorta(new Date(p.limite)));
+      }
+      if (dias < 0) (cerrar[p.lote + '|' + p.limite] = cerrar[p.lote + '|' + p.limite] || []).push(p);
+    });
+    Object.keys(cerrar).forEach(function (k) {
+      var ps = cerrar[k], si = ps.filter(function (p) { return p.respondio; }), no = ps.filter(function (p) { return !p.respondio; });
+      if (cfg.teamMails.length) {
+        var fila = function (p) { return [p.agente, p.modo, p.respondio || (p.recordado ? 'No (se le recordó el ' + p.recordado.slice(0, 10) + ')' : 'No')]; };
+        mandarMail({ to: cfg.teamMails.join(','), subject: 'BIDCOM | Cierre del pedido de tarifas (límite ' + fechaCorta(new Date(ps[0].limite)) + '): ' + si.length + ' cotizaron, ' + no.length + ' no',
+          html: htmlEnvolver('<p>Cerró el pedido de tarifas' + (ps[0].origen === 'Manual' ? ' lanzado el ' + fechaLarga(new Date(ps[0].creado)) : ' por vencimiento') + ' con fecha límite ' + esc(fechaLarga(new Date(ps[0].limite))) + '.</p>' +
+            (no.length ? '<p><b>No cotizaron (' + no.length + '):</b></p>' + htmlTabla(['Agente', 'Modo', 'Cotizó'], no.map(fila)) : '<p><b>Cotizaron todos.</b></p>') +
+            (si.length ? '<p><b>Cotizaron (' + si.length + '):</b></p>' + htmlTabla(['Agente', 'Modo', 'Recibido'], si.map(fila)) : '') +
+            '<p style="font-size:12px;color:#5b6876">Para volver a pedirle a quien no cotizó: menú Tarifador BIDCOM > Pedir tarifas a agentes activos.</p>') });
+        enviados++;
+      }
+      ps.forEach(function (p) { p.cerrado = fechaHora(new Date()); });
+      registrar('Sistema', 'Cierre de pedido de tarifas', si.length + ' cotizaron · no: ' + (no.map(function (p) { return p.agente + ' (' + p.modo + ')'; }).join(', ') || 'ninguno'));
+    });
+    guardarPedidos(lista);
+    return enviados;
+  }
+  function abrirPedido() {
+    var cfg = leerAjustes(), act = cfg.agentes.filter(function (a) { return a.activo; });
+    var hoy = new Date(), lim = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 3), desde = new Date(lim.getFullYear(), lim.getMonth(), lim.getDate() + 1);
+    var iso = function (d) { return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd'); };
+    var html = '<div style="font:14px Arial,sans-serif;color:#15212e">' +
+      '<p style="margin:0 0 10px">Le llega un mail a cada agente marcado con su link y la fecha límite, con copia al team (' + esc(cfg.teamMails.join(', ') || 'sin mails del team') + ').</p>' +
+      '<label><b>Modo</b><br><select id="m" style="width:100%;padding:6px;margin:4px 0 10px"><option>Marítimo</option><option>Aéreo</option><option value="Ambos">Marítimo y aéreo</option></select></label>' +
+      '<div style="display:flex;gap:10px"><label style="flex:1"><b>Vigencia desde</b><br><input type="date" id="d" value="' + iso(desde) + '" style="width:100%;padding:5px;margin:4px 0 10px"></label>' +
+      '<label style="flex:1"><b>Fecha límite</b><br><input type="date" id="l" value="' + iso(lim) + '" style="width:100%;padding:5px;margin:4px 0 10px"></label></div>' +
+      '<b>Agentes activos</b><div style="max-height:170px;overflow:auto;border:1px solid #ddd;border-radius:6px;padding:6px;margin:4px 0 12px">' +
+      act.map(function (a, i) { return '<label style="display:block;padding:3px 0"><input type="checkbox" class="ag" value="' + esc(a.nombre) + '" checked> ' + esc(a.nombre) + (a.email ? ' <span style="color:#5b6876">(' + esc(a.email) + ')</span>' : ' <span style="color:#b3261e">(sin email: va al team)</span>') + '</label>'; }).join('') +
+      '</div><button id="b" style="background:#0B5F8A;color:#fff;border:0;border-radius:6px;padding:9px 16px;font-weight:bold;cursor:pointer">Enviar pedido</button> <span id="r" style="margin-left:8px"></span></div>' +
+      '<script>document.getElementById("b").onclick=function(){var ags=[].slice.call(document.querySelectorAll(".ag:checked")).map(function(x){return x.value;});' +
+      'var d={modo:document.getElementById("m").value,desde:document.getElementById("d").value,limite:document.getElementById("l").value,agentes:ags};' +
+      'if(!ags.length){document.getElementById("r").textContent="Marcá al menos un agente.";return;}if(!d.limite){document.getElementById("r").textContent="Falta la fecha límite.";return;}' +
+      'this.disabled=true;document.getElementById("r").textContent="Enviando…";google.script.run.withSuccessHandler(function(n){document.getElementById("r").textContent="Listo: "+n+" mail(s) enviados.";setTimeout(function(){google.script.host.close();},2500);})' +
+      '.withFailureHandler(function(e){document.getElementById("b").disabled=false;document.getElementById("r").textContent="Error: "+e.message;}).tarifadorPedirTarifas(d);};</script>';
+    SpreadsheetApp.getUi().showModalDialog(HtmlService.createHtmlOutput(html).setWidth(520).setHeight(470), 'Pedir tarifas a agentes activos');
+  }
+  function pedirTarifas(d) {
+    exigirEditor();
+    var cfg = leerAjustes(), ag = agentesPorNombre(), p = function (s) { var x = String(s || '').split('-'); return x.length === 3 ? new Date(+x[0], +x[1] - 1, +x[2]) : null; };
+    var desde = p(d.desde), limite = p(d.limite); if (!limite) throw new Error('Falta la fecha límite.');
+    if (aDia(limite) < aDia(new Date())) throw new Error('La fecha límite ya pasó.');
+    var modos = d.modo === 'Ambos' ? [MODO.MAR, MODO.AIR] : [d.modo === MODO.AIR ? MODO.AIR : MODO.MAR], lote = 'M' + Date.now(), nuevos = [], n = 0;
+    (d.agentes || []).forEach(function (nombre) {
+      var a = ag[nombre]; if (!a || !a.activo || (!a.email && !cfg.teamMails.length)) return;
+      modos.forEach(function (m) {
+        mailPedido(cfg, a, m, desde, limite, null, false); n++;
+        nuevos.push({ lote: lote, origen: 'Manual', creado: Date.now(), modo: m, agente: a.nombre, desde: desde ? desde.getTime() : null, limite: limite.getTime() });
+      });
+    });
+    guardarPedidos(leerPedidos().concat(nuevos));
+    registrar(Session.getActiveUser().getEmail() || 'BIDCOM', 'Pedido de tarifas (manual)', d.modo + ' · desde ' + (desde ? fechaCorta(desde) : '-') + ' · límite ' + fechaCorta(limite) + ' · ' + (d.agentes || []).join(', '));
+    return n;
   }
 
   /* ------------------------------------------------------------------ */
@@ -1520,6 +1627,9 @@ var Tarifador = (function () {
     activarAvisos: activarAvisos,
     avisarVencimientosMenu: avisarVencimientosMenu,
     avisarVencimientos: avisarVencimientos,
+    abrirPedido: abrirPedido,
+    pedirTarifas: pedirTarifas,
+    procesarPedidos: procesarPedidos,
     num: num,
     aFecha: aFecha,
     aDia: aDia,
@@ -1581,6 +1691,8 @@ function tarifador_enviarDecisiones() { Tarifador.enviarDecisiones(); }
 function tarifador_recalcular() { Tarifador.recalcularMenu(); }
 function tarifador_avisarVencimientos() { Tarifador.avisarVencimientosMenu(); }
 function tarifador_irACotizaciones() { Tarifador.irACotizaciones(); }
+function tarifador_pedirTarifas() { Tarifador.abrirPedido(); }
+function tarifadorPedirTarifas(d) { return Tarifador.pedirTarifas(d); }
 function tarifador_panel() { Tarifador.abrirPanel(); }
 function tarifadorDatosPanel() { return Tarifador.datosPanel(); }
 function tarifadorIrAFila(nombre, fila) { return Tarifador.irAFila(nombre, fila); }
