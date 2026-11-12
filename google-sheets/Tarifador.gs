@@ -936,11 +936,11 @@ var Tarifador = (function () {
       var d = DECISIONES.filter(function (k) { return claveTexto(k) === claveTexto(x[K.decision]); })[0];
       if (!d || x[K.enviada] || x[K.vigente] !== 'SI') return;
       pend.push({ i: i, d: d }); cuenta[d]++;
-      if (d === 'Pedir mejora') agentesMejora[x[K.ffww]] = true;
+      agentesMejora[x[K.ffww]] = true;
     });
     if (!pend.length) { ui.alert('No hay decisiones nuevas.\n\nEn "' + HOJA.COTIZ + '" elegí Aprobar, Pedir mejora o Descartar en la columna "Decisión del team" de las filas que quieras resolver.'); return; }
     var nAg = Object.keys(agentesMejora).length;
-    if (!confirmar('Vas a registrar:\n• ' + cuenta.Aprobar + ' aprobada(s)\n• ' + cuenta['Pedir mejora'] + ' pedido(s) de mejora' + (nAg ? ' (se manda un mail a ' + nAg + ' agente(s))' : '') + '\n• ' + cuenta.Descartar + ' descartada(s)\n\n¿Seguimos?')) return;
+    if (!confirmar('Vas a registrar:\n• ' + cuenta.Aprobar + ' aprobada(s)\n• ' + cuenta['Pedir mejora'] + ' pedido(s) de mejora\n• ' + cuenta.Descartar + ' descartada(s)\n\nSe manda un mail a ' + nAg + ' agente(s) con su devolución' + (cfg.teamMails.length ? ', con copia a ' + cfg.teamMails.join(', ') : '') + '.\n\n¿Seguimos?')) return;
     var lock = LockService.getScriptLock(); lock.waitLock(20000);
     var porAgente = {}, ahora = new Date();
     try {
@@ -949,8 +949,8 @@ var Tarifador = (function () {
         if (p.d === 'Pedir mejora') {
           if (!(num(x[K.targetPedir]) > 0) && num(x[K.target]) > 0) { x[K.targetPedir] = x[K.target]; sh.getRange(fila, K.targetPedir + 1).setValue(x[K.target]); }
           txt += num(x[K.targetPedir]) > 0 ? ' (objetivo ' + valorTxt(x[K.targetPedir], x[K.modo] === MODO.MAR) + ')' : '';
-          (porAgente[x[K.ffww]] = porAgente[x[K.ffww]] || []).push(x);
         }
+        (porAgente[x[K.ffww]] = porAgente[x[K.ffww]] || []).push({ x: x, d: p.d });
         sh.getRange(fila, K.estado + 1).setValue(est); sh.getRange(fila, K.enviada + 1).setValue(ahora);
         x[K.estado] = est; x[K.enviada] = ahora;
         x[K.historial] = agregarHistorial(sh, fila, x[K.historial], txt + (x[K.mensaje] ? ' · "' + x[K.mensaje] + '"' : ''));
@@ -960,29 +960,41 @@ var Tarifador = (function () {
     Object.keys(porAgente).forEach(function (nombre) {
       var a = ag[nombre];
       if (!a || !a.email) { sinMail.push(nombre); return; }
-      mailPedidoMejora(cfg, a, porAgente[nombre]); enviados++;
+      mailDecisiones(cfg, a, porAgente[nombre]); enviados++;
     });
     registrar('BIDCOM', 'Envió decisiones', cuenta.Aprobar + ' aprobada(s), ' + cuenta['Pedir mejora'] + ' pedido(s) de mejora, ' + cuenta.Descartar + ' descartada(s). Mails: ' + enviados);
-    ui.alert('Listo. ' + (enviados ? 'Se mandó el pedido de mejora a ' + enviados + ' agente(s). ' : '') +
+    ui.alert('Listo. ' + (enviados ? 'Se mandó la devolución a ' + enviados + ' agente(s), con copia al team. ' : '') +
       (sinMail.length ? '\n\nSin email cargado (mandales el pedido a mano o completá su email): ' + sinMail.join(', ') + '. Igual van a ver el pedido al entrar con su link.' : ''));
   }
 
-  function mailPedidoMejora(cfg, agente, filas) {
-    var porModo = {};
-    filas.forEach(function (f) { (porModo[f[K.modo]] = porModo[f[K.modo]] || []).push(f); });
-    var cuerpo = '<p>Hola ' + esc(agente.nombre) + ':</p><p>Gracias por tu cotización. La revisamos y te pedimos mejorar las siguientes tarifas.</p>';
-    Object.keys(porModo).forEach(function (m) {
-      var mar = m === MODO.MAR, fs = porModo[m];
-      var enc = ['Ruta', mar ? 'Naviera' : 'Aerolínea'].concat(mar ? ['Contenedor'] : []).concat(['Vigencia', 'Tu flete actual']).concat(cfg.mostrarTarget ? ['Flete objetivo'] : []).concat(['Comentario']);
-      cuerpo += '<h3 style="margin:16px 0 0">' + esc(m) + '</h3>' + htmlTabla(enc, fs.map(function (f) {
-        return [f[K.origen] + ' → ' + f[K.destino], f[K.carrier]].concat(mar ? [f[K.ctnr]] : [])
-          .concat([fechaCorta(f[K.desde]) + ' al ' + fechaCorta(f[K.hasta]), valorTxt(f[K.flete], mar)])
-          .concat(cfg.mostrarTarget ? [valorTxt(f[K.targetPedir], mar)] : []).concat([f[K.mensaje] || '']);
-      })) + '<p style="font-size:12px;color:#5b6876">' + (mar ? 'Valores de flete por contenedor, sin Recarga IMO, Locales ARG ni gastos en origen.' : 'Flete USD/kg a ' + cfg.peso + ' kg, sin fuel, IMO ni gastos.') + '</p>';
-    });
-    cuerpo += '<p>Cargá la tarifa mejorada desde tu link personal (el de siempre). Tu cotización aparece precargada: cambiá lo que mejores y enviá.</p>' + htmlBoton(linkDe(agente), 'Cargar tarifa mejorada');
-    mandarMail({ to: agente.email, replyTo: cfg.teamMails[0] || '', subject: 'BIDCOM · Pedido de mejora de tarifas', html: htmlEnvolver(cuerpo) });
+  // Devolución al agente: un solo mail con lo aprobado, la mejora pedida y lo no seleccionado. Copia al team.
+  function mailDecisiones(cfg, agente, items) {
+    var grupos = { 'Pedir mejora': [], Aprobar: [], Descartar: [] };
+    items.forEach(function (it) { grupos[it.d].push(it.x); });
+    var tabla = function (fs, objetivo) {
+      var porModo = {}, out = '';
+      fs.forEach(function (f) { (porModo[f[K.modo]] = porModo[f[K.modo]] || []).push(f); });
+      Object.keys(porModo).forEach(function (m) {
+        var mar = m === MODO.MAR, enc = ['Ruta', mar ? 'Naviera' : 'Aerolínea'].concat(mar ? ['Contenedor'] : []).concat(['Vigencia', objetivo ? 'Tu flete actual' : 'Flete'])
+          .concat(objetivo && cfg.mostrarTarget ? ['Flete objetivo'] : []).concat(['Comentario']);
+        out += '<p style="margin:10px 0 0"><b>' + esc(m) + '</b></p>' + htmlTabla(enc, porModo[m].map(function (f) {
+          return [f[K.origen] + ' → ' + f[K.destino], f[K.carrier]].concat(mar ? [f[K.ctnr]] : []).concat([fechaCorta(f[K.desde]) + ' al ' + fechaCorta(f[K.hasta]), valorTxt(f[K.flete], mar)])
+            .concat(objetivo && cfg.mostrarTarget ? [valorTxt(f[K.targetPedir], mar)] : []).concat([f[K.mensaje] || '']);
+        })) + '<p style="font-size:12px;color:#5b6876">' + (mar ? 'Flete por contenedor, sin Recarga IMO, Locales ARG ni gastos en origen.' : 'Flete USD/kg a ' + cfg.peso + ' kg, sin fuel, IMO ni gastos.') + '</p>';
+      });
+      return out;
+    };
+    var cuerpo = '<p>Hola ' + esc(agente.nombre) + ':</p><p>Gracias por tu cotización. Te compartimos la devolución del team de BIDCOM.</p>';
+    if (grupos.Aprobar.length) cuerpo += '<h3 style="margin:18px 0 0;color:#1e7a3c">Tarifas aprobadas</h3><p style="margin:4px 0">Quedan aprobadas para la vigencia indicada.</p>' + tabla(grupos.Aprobar, false);
+    if (grupos['Pedir mejora'].length) cuerpo += '<h3 style="margin:18px 0 0;color:#0B5F8A">Te pedimos mejorar</h3>' + tabla(grupos['Pedir mejora'], true) +
+      '<p>Cargá la tarifa mejorada desde tu link personal (el de siempre). Tu cotización aparece precargada: cambiá lo que mejores y enviá.</p>' + htmlBoton(linkDe(agente), 'Cargar tarifa mejorada');
+    if (grupos.Descartar.length) cuerpo += '<h3 style="margin:18px 0 0;color:#5b6876">No seleccionadas en esta ronda</h3><p style="margin:4px 0">En esta oportunidad no avanzamos con estas tarifas. Te vamos a seguir pidiendo cotización en las próximas vigencias.</p>' + tabla(grupos.Descartar, false);
+    cuerpo += '<p>Cualquier duda, respondé este mail.</p><p>¡Gracias!<br>Equipo de Logística Internacional – BIDCOM</p>';
+    var asunto = grupos['Pedir mejora'].length ? 'BIDCOM · Pedido de mejora de tarifas' + (grupos.Aprobar.length || grupos.Descartar.length ? ' y devolución de tu cotización' : '') :
+      grupos.Aprobar.length && !grupos.Descartar.length ? 'BIDCOM · Tarifas aprobadas' : 'BIDCOM · Devolución de tu cotización';
+    mandarMail({ to: agente.email, cc: cfg.teamMails.join(','), replyTo: cfg.teamMails[0] || '', subject: asunto, html: htmlEnvolver(cuerpo) });
   }
+  function mailPedidoMejora(cfg, agente, filas) { mailDecisiones(cfg, agente, filas.map(function (x) { return { x: x, d: 'Pedir mejora' }; })); }
 
   /* ------------------------------------------------------------------ */
   /* Aviso de vencimiento: N días antes, al agente y con copia al team    */
