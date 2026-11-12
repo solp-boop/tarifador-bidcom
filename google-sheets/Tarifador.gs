@@ -1097,11 +1097,11 @@ var Tarifador = (function () {
       '<label style="flex:1"><b>Fecha límite</b><br><input type="date" id="l" value="' + iso(lim) + '" style="width:100%;padding:5px;margin:4px 0 10px"></label></div>' +
       '<b>Agentes activos</b> <span class="s" id="cuenta"></span><div id="lista" style="max-height:210px;overflow:auto;border:1px solid #ddd;border-radius:6px;padding:6px;margin:4px 0 12px"></div>' +
       '<button id="b" style="background:#0B5F8A;color:#fff;border:0;border-radius:6px;padding:9px 16px;font-weight:bold;cursor:pointer">Enviar pedido</button> <span id="r" style="margin-left:8px"></span></div>' +
-      '<script>var AG=' + JSON.stringify(ags).replace(/</g, '\\u003c') + ';' +
+      '<script>var HOY="' + iso(hoy) + '",AG=' + JSON.stringify(ags).replace(/</g, '\\u003c') + ';' +
       'function fc(s){var x=s.split("-");return x[2]+"/"+x[1];}function esc(t){return String(t).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[c];});}' +
       'function pinta(){var m=document.getElementById("m").value,d=document.getElementById("d").value,ms=m==="Ambos"?["mar","air"]:[m==="Aéreo"?"air":"mar"],falt=0;' +
       'document.getElementById("lista").innerHTML=AG.map(function(a,i){var fal=ms.filter(function(k){return !a[k]||a[k]<d;});if(fal.length)falt++;' +
-      'var est=ms.map(function(k){var nom=k==="mar"?"Marítimo":"Aéreo";return a[k]&&a[k]>=d?"<span class=ok>"+nom+": vigente hasta "+fc(a[k])+"</span>":"<span class=no>"+nom+": "+(a[k]?"venció el "+fc(a[k]):"sin tarifa cargada")+"</span>";}).join(" · ");' +
+      'var est=ms.map(function(k){var nom=k==="mar"?"Marítimo":"Aéreo";return a[k]&&a[k]>=d?"<span class=ok>"+nom+": vigente hasta "+fc(a[k])+"</span>":"<span class=no>"+nom+": "+(a[k]?(a[k]<HOY?"venció el ":"vence el ")+fc(a[k]):"sin tarifa cargada")+"</span>";}).join(" · ");' +
       'return "<label style=\\"display:block;padding:4px 0;border-bottom:1px solid #f0f0f0\\"><input type=checkbox class=ag data-i="+i+" data-m=\\""+fal.join(",")+"\\""+(fal.length?" checked":"")+"> <b>"+esc(a.n)+"</b> <span class=s>"+(a.e?esc(a.e):"sin email: va al team")+"</span><br><span style=\\"margin-left:22px;font-size:12px\\">"+est+"</span></label>";}).join("");' +
       'document.getElementById("cuenta").textContent="("+falt+" de "+AG.length+" sin tarifa)";}' +
       'document.getElementById("m").onchange=pinta;document.getElementById("d").onchange=pinta;pinta();' +
