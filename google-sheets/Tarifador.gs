@@ -234,8 +234,7 @@ var Tarifador = (function () {
     sh.getRange(1, K.id + 1).setNote('Una fila por tarifa recibida (marítimo: ruta y contenedor; aéreo: ruta). Nunca se borra: cada envío queda con su versión. Última versión = SI es lo que vale hoy para ese agente y esa vigencia.');
     sh.getRange(1, K.total + 1).setNote('Marítimo: USD por contenedor = flete + Recarga IMO (Locales ARG va aparte). Aéreo: all-in USD/kg al peso de referencia.');
     sh.getRange(1, K.menor + 1).setNote('Se compara solo el flete (sin IMO, locales ni gastos). Ronda = mismas rutas (y contenedor) con vigencias que se superponen. SI = cotizó el menor flete. "SI (única)" = es la única oferta.');
-    sh.getRange(1, K.target + 1).setNote('Sobre el flete solamente. A quien cotizó el menor flete se le pide la mejora de Ajustes (5%); al resto, igualar la menor. Cuenta también lo cargado a mano en la base madre y nunca supera la menor tarifa recibida. Podés escribir otro valor en "Target a pedir".');
-    sh.getRange(1, K.semaforo + 1).setNote('Flete contra la mediana histórica del flete × (1 − reducción). Verde ≤ objetivo · Amarillo hasta +5% · Naranja hasta +15% · Rojo más.');
+    notasComparacion(sh, leerAjustes());
     sh.getRange(1, K.decision + 1).setNote('Elegí Aprobar, Pedir mejora o Descartar y después usá el menú Tarifador BIDCOM > Enviar decisiones del team. Al agente no le llega nada hasta ese paso.');
     sh.getRange(1, K.targetPedir + 1).setNote('Opcional. Vacío = se usa el target sugerido.');
     var colTodo = function (k) { return sh.getRange(col(k) + '2:' + col(k)); };
@@ -655,11 +654,19 @@ var Tarifador = (function () {
 
   /* ------------------------------------------------------------------ */
   /* Comparación: la menor de la ronda, mediana histórica y target        */
-  /* Regla: a quien cotizó la menor se le pide −15% (configurable);       */
+  /* Regla: a quien cotizó la menor se le pide −5% (configurable);        */
   /* al resto, igualar la menor. La mediana es el control del semáforo.   */
   /* ------------------------------------------------------------------ */
+  // Notas de Target y semáforo con los % actuales de Ajustes (se reescriben en cada recálculo)
+  function notasComparacion(sh, cfg) {
+    var p = function (x) { return Math.round(x * 1000) / 10 + '%'; };
+    sh.getRange(1, K.target + 1).setNote('Sobre el flete solamente. Regla: a quien cotizó el menor flete se le pide ' + p(cfg.reduccionMenor) + ' menos ("Mejora a pedir a quien cotizó la menor" en Ajustes); al resto, igualar la menor. ' +
+      'La ronda incluye lo cargado a mano en la base madre (misma ruta y contenedor, vigencias que se superponen). Nunca supera la menor tarifa recibida. Podés escribir otro valor en "Target a pedir".');
+    sh.getRange(1, K.semaforo + 1).setNote('Flete contra la mediana histórica del flete menos la meta de ahorro (' + p(cfg.reduccion) + ', "Meta de ahorro vs histórico" en Ajustes). Verde ≤ objetivo · Amarillo hasta +5% · Naranja hasta +15% · Rojo más. No define el target.');
+  }
   function recalcular(cfg, sh, datos) {
     cfg = cfg || leerAjustes(); sh = sh || hojaCotiz(); datos = datos || valoresCotiz(sh);
+    try { notasComparacion(sh, cfg); } catch (eN) { }
     if (!datos.length) return datos;
     var red = cfg.reduccion, redM = cfg.reduccionMenor, hist = null, base = null, vig = [];
     datos.forEach(function (x, i) { if (x[K.vigente] === 'SI' && x[K.id] && num(x[K.flete]) > 0) vig.push(i); });
