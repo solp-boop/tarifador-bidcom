@@ -130,6 +130,7 @@ var Tarifador = (function () {
       .addItem('Recalcular comparación', 'tarifador_recalcular')
       .addItem('Pedir tarifas a agentes activos', 'tarifador_pedirTarifas')
       .addItem('Revisar vencimientos y pedidos ahora', 'tarifador_avisarVencimientos')
+      .addItem('Volver a pegar un envío en la base madre', 'tarifador_repegarEnvio')
       .addItem('Ir a TARIFADOR Cotizaciones', 'tarifador_irACotizaciones')
       .addToUi();
   }
@@ -730,6 +731,31 @@ var Tarifador = (function () {
     if (!m) return 'Igualar la menor de ' + ruta + ': ' + valorTxt(L, mar) + ' (otra versión de este mismo agente para esa vigencia).';
     return 'Igualar la menor de ' + ruta + ': ' + desc(m) + '. Ofertas en la ronda: ' + (otros.length + 1) + '.';
   }
+  // Vuelve a pegar en la base madre (y en la base de gastos) un envío ya guardado en TARIFADOR Cotizaciones, por su ID.
+  // Reemplaza las filas que ya estén pegadas (no duplica).
+  function repegarEnvioMenu() {
+    var ui = SpreadsheetApp.getUi(), r = ui.prompt('Volver a pegar un envío', 'ID del envío (columna "ID envío" de ' + HOJA.COTIZ + ', por ejemplo M204BAE1):', ui.ButtonSet.OK_CANCEL);
+    if (r.getSelectedButton() !== ui.Button.OK) return;
+    ui.alert(repegarEnvio(String(r.getResponseText() || '').trim().toUpperCase()));
+  }
+  function repegarEnvio(id) {
+    var cfg = leerAjustes(), sh = hojaCotiz(), datos = valoresCotiz(sh), filas = datos.filter(function (x) { return String(x[K.id]).toUpperCase() === id; });
+    if (!filas.length) return 'No encontré el envío ' + id + '.';
+    var x0 = filas[0], modo = x0[K.modo], agente = agentesPorNombre()[x0[K.ffww]];
+    if (!agente) return 'El agente ' + x0[K.ffww] + ' no está en ' + HOJA.AJUSTES + '.';
+    if (modo !== MODO.MAR) return 'Por ahora esta opción es para envíos marítimos.';
+    var lineas = filas.map(function (x) {
+      var det = leerDetalle(x[K.detalle]), r = det.r || {}, c = (r.contenedores || {})[x[K.ctnr]] || {};
+      return { pegar: true, correccion: true, tipo: x[K.tipo], ruta: det.ruta, r: r, ctnr: x[K.ctnr], flete: num(x[K.flete]), dias: num(c.dias) };
+    }).filter(function (l) { return l.r && l.r.pol; });
+    var ahora = new Date(), msg = [];
+    try { pegarEnvioEnBase(cfg, modo, agente, lineas, aFecha(x0[K.desde]), aFecha(x0[K.hasta]), x0[K.version], ahora); SpreadsheetApp.flush(); msg.push('Base madre: listo.'); }
+    catch (e) { msg.push('Base madre: ' + (e && e.message || e)); registrar('Sistema', 'Error al volver a pegar en la base madre', id + ': ' + (e && e.message || e)); }
+    try { var n = pegarGastosOrigen(cfg, agente, lineas, id, ahora); SpreadsheetApp.flush(); msg.push('Gastos en origen: ' + n + ' fila(s).'); }
+    catch (e2) { msg.push('Gastos en origen: ' + (e2 && e2.message || e2)); registrar('Sistema', 'Error al volver a pegar los gastos en origen', id + ': ' + (e2 && e2.message || e2)); }
+    registrar('BIDCOM', 'Volvió a pegar un envío', id + ' · ' + agente.nombre + ' · ' + lineas.length + ' tarifa(s)');
+    return 'Envío ' + id + ' (' + agente.nombre + ', ' + lineas.length + ' tarifas):\n' + msg.join('\n') + '\n\nEl detalle (filas ajustadas o sin pegar) queda en el registro de ' + HOJA.AJUSTES + '.';
+  }
   function recalcularMenu() { recalcular(); SpreadsheetApp.getUi().alert('Listo. Se recalculó la comparación de todas las tarifas vigentes.'); }
   function redondear(v, mar) { return mar ? Math.round(v) : Math.round(v * 100) / 100; }
   function semaforo(valor, objetivo) {
@@ -1221,6 +1247,18 @@ var Tarifador = (function () {
     var k = claveTexto(valor); for (var i = 0; i < l.length; i++) if (claveTexto(l[i]) === k) return l[i];
     return null;
   }
+  // Valor ajustado a una lista desplegable: igual (sin importar mayúsculas/espacios), alias conocido o abreviatura de la lista. null = no hay equivalente.
+  var ALIAS_LISTA = { 'HAPAGLLOYD': 'HAPAG', 'HAPAGLLOYDAG': 'HAPAG', 'YANGMING': 'YML', 'WANHAI': 'WHL', 'HAMBURGSUD': 'HAMBURG SUD', 'CMA': 'CMA CGM', 'MAERSKLINE': 'MAERSK', 'MSK': 'MAERSK',
+    'SINGAPORE': 'Singapur', 'HONGKONG': 'Hong Kong', 'BSAS': 'BUENOS AIRES', 'BUENOSAIRESARGENTINA': 'BUENOS AIRES' };
+  function ajustarALista(listas, col, valor) {
+    var l = listas[col]; if (!l) return valor;
+    var r = enLista(listas, col, valor); if (r !== null) return r;
+    var k = claveTexto(valor), al = ALIAS_LISTA[k];
+    if (al) { r = enLista(listas, col, al); if (r !== null) return r; }
+    var mejor = null;
+    l.forEach(function (x) { var kx = claveTexto(x); if (kx.length >= 3 && k.indexOf(kx) === 0 && (!mejor || kx.length > claveTexto(mejor).length)) mejor = x; });
+    return mejor;
+  }
   function sumarMeses(d, m) { return new Date(d.getFullYear(), d.getMonth() + m, d.getDate()); }
   function pegarGastosOrigen(cfg, agente, lineas, id, ahora) {
     if (!cfg.gastosUrl) return 0;
@@ -1287,9 +1325,11 @@ var Tarifador = (function () {
     });
     if (nuevas.length) {
       asegurarFila(hoja, ultima + nuevas.length);
-      if (ultima > 1) hoja.getRange(ultima, 1, 1, ancho).copyTo(hoja.getRange(ultima + 1, 1, nuevas.length, ancho), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
-      hoja.getRange(ultima + 1, 1, nuevas.length, ancho).setValues(nuevas);
-      hoja.getRange(ultima + 1, M.validez, nuevas.length, 1).setNumberFormat('dd/MM/yyyy');
+      // Si la base tiene un filtro aplicado, Google no deja copiar formato sobre filas filtradas: se sigue sin formato
+      try { if (ultima > 1) hoja.getRange(ultima, 1, 1, ancho).copyTo(hoja.getRange(ultima + 1, 1, nuevas.length, ancho), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false); } catch (eFmt) { }
+      try { hoja.getRange(ultima + 1, 1, nuevas.length, ancho).setValues(nuevas); }
+      catch (eVal) { nuevas.forEach(function (f, j) { hoja.getRange(ultima + 1 + j, 1, 1, ancho).setValues([f]); }); }
+      try { hoja.getRange(ultima + 1, M.validez, nuevas.length, 1).setNumberFormat('dd/MM/yyyy'); } catch (eNf) { }
     }
     SpreadsheetApp.flush();                                             // si Google rechaza algo, que falle acá y no al final del envío
     if (Object.keys(rechazos).length) registrar('Sistema', 'Gastos en origen sin pegar', 'No están en las listas de "' + cfg.gastosHoja + '": ' + Object.keys(rechazos).join(', '));
@@ -1466,12 +1506,25 @@ var Tarifador = (function () {
       var datos = n ? hoja.getRange(inicio, 1, n, ancho).getValues() : [], formulas = n ? hoja.getRange(inicio, 1, n, ancho).getFormulas() : [];
       var ultima = enc.fila; datos.forEach(function (r, i) { if (String(r[colPol - 1]).trim() !== '') ultima = inicio + i; });
       var claves = ['ffww', 'pol', 'pod', 'linea', 'ctnr', 'desde'].filter(function (c) { return M[c]; });
-      grupos[nombre].forEach(function (f) {
+      // Listas desplegables de la base: se ajusta cada valor a como está escrito en la lista (si no, Google rechaza la fila)
+      var listas = ultima > enc.fila ? listasValidacion(hoja, ultima, ancho) : {}, saltadas = [], ajustes = {}, pegadas = 0;
+      grupos[nombre].forEach(function (f0) {
+       try {
+        var f = {}; Object.keys(f0).forEach(function (k) { f[k] = f0[k]; });
+        var faltaClave = [], notas = [];
+        Object.keys(M).forEach(function (campo) {
+          var v = valorMar(campo, f), c = M[campo]; if (!listas[c] || v === '' || v === undefined || v === null || typeof v === 'number' || v instanceof Date) return;
+          var a = ajustarALista(listas, c, v);
+          if (a === null) { if (['ffww', 'pol', 'pod', 'ctnr', 'transporte'].indexOf(campo) >= 0) faltaClave.push(campo + ' "' + v + '"'); else { notas.push(campo + ': ' + v); f['_vacio_' + campo] = true; } ajustes[campo + ' "' + v + '" (no está en la lista)'] = true; }
+          else if (a !== v) { f['_lista_' + campo] = a; ajustes[campo + ' "' + v + '" → "' + a + '"'] = true; }
+        });
+        if (faltaClave.length) { saltadas.push((f.pol || '') + ' ' + (f.ctnr || '') + ': ' + faltaClave.join(', ')); return; }
+        if (notas.length) f.coment = (f.coment ? f.coment + ' · ' : '') + 'Fuera de lista: ' + notas.join(', ');
         var fila = 0;
         if (f.reemplazar) {
           for (var i = datos.length - 1; i >= 0 && !fila; i--) {
             var r = datos[i] || [];
-            if (claves.every(function (c) { return clavePegado(r[M[c] - 1]) === clavePegado(f[c]); })) fila = inicio + i;
+            if (claves.every(function (c) { return clavePegado(r[M[c] - 1]) === clavePegado(f['_lista_' + c] !== undefined ? f['_lista_' + c] : f[c]); })) fila = inicio + i;
           }
         }
         var esNueva = !fila;
@@ -1483,12 +1536,16 @@ var Tarifador = (function () {
           var c = M[campo]; ocupadas[c - 1] = true;
           if (propias[c - 1]) return;
           if (esNueva && arriba[c - 1]) { hoja.getRange(fila - 1, c).copyTo(hoja.getRange(fila, c), SpreadsheetApp.CopyPasteType.PASTE_FORMULA, false); formulas[idx][c - 1] = arriba[c - 1]; return; }
-          var v = valorMar(campo, f); hoja.getRange(fila, c).setValue(v === undefined || (typeof v === 'number' && isNaN(v)) ? '' : v);
+          var v = f['_vacio_' + campo] ? '' : f['_lista_' + campo] !== undefined ? f['_lista_' + campo] : valorMar(campo, f);
+          hoja.getRange(fila, c).setValue(v === undefined || (typeof v === 'number' && isNaN(v)) ? '' : v);
           datos[idx][c - 1] = v;
         });
         if (esNueva) { copiarFormulasDeArriba(hoja, fila, arriba, ocupadas, formulas[idx]); total.nuevas++; } else total.actualizadas++;
+        pegadas++;
+       } catch (eF) { saltadas.push((f0.pol || '') + ' ' + (f0.linea || '') + ' ' + (f0.ctnr || '') + ': ' + String(eF && eF.message || eF).slice(0, 160)); }
       });
-      registrar('Sistema', 'Pegó marítimo en la base madre', grupos[nombre].length + ' fila(s) en "' + nombre + '"');
+      registrar('Sistema', 'Pegó marítimo en la base madre', pegadas + ' de ' + grupos[nombre].length + ' fila(s) en "' + nombre + '"' + (Object.keys(ajustes).length ? ' · ajustado a las listas: ' + Object.keys(ajustes).join(', ') : ''));
+      if (saltadas.length) registrar('Sistema', 'Filas sin pegar en la base madre', saltadas.length + ' fila(s) en "' + nombre + '": ' + saltadas.slice(0, 15).join(' | ') + (saltadas.length > 15 ? ' …' : ''));
     });
     return total;
   }
@@ -1694,6 +1751,8 @@ var Tarifador = (function () {
     avisarVencimientosMenu: avisarVencimientosMenu,
     avisarVencimientos: avisarVencimientos,
     abrirPedido: abrirPedido,
+    repegarEnvioMenu: repegarEnvioMenu,
+    repegarEnvio: repegarEnvio,
     pedirTarifas: pedirTarifas,
     procesarPedidos: procesarPedidos,
     num: num,
@@ -1759,6 +1818,7 @@ function tarifador_avisarVencimientos() { Tarifador.avisarVencimientosMenu(); }
 function tarifador_irACotizaciones() { Tarifador.irACotizaciones(); }
 function tarifador_pedirTarifas() { Tarifador.abrirPedido(); }
 function tarifadorPedirTarifas(d) { return Tarifador.pedirTarifas(d); }
+function tarifador_repegarEnvio() { Tarifador.repegarEnvioMenu(); }
 function tarifador_panel() { Tarifador.abrirPanel(); }
 function tarifadorDatosPanel() { return Tarifador.datosPanel(); }
 function tarifadorIrAFila(nombre, fila) { return Tarifador.irAFila(nombre, fila); }
