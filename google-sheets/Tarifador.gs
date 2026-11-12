@@ -71,7 +71,7 @@ var Tarifador = (function () {
     ['gastosHoja', 'Pestaña de gastos en origen', 'Concatenado de GS (ffww)', 'Una fila por agente, puerto, contenedor y concepto. Si la fila ya existe se actualiza; si no, se agrega abajo.'],
     ['gastosMeses', 'Validez de los gastos en origen (meses)', 1, 'Se escribe en la columna de validez. Unos días antes, el agente recibe un aviso para volver a cotizarlos.'],
     ['PEDIDOS DE TARIFAS'],
-    ['diasRecordatorio', 'Recordatorio: días antes de la fecha límite', 2, 'Si el agente todavía no cargó, le llega un recordatorio (con copia al team). Al pasar la fecha límite, el team recibe el resumen de quién cotizó y quién no.'],
+    ['recordatorioDiario', 'Recordatorio diario a quien no envió (SI/NO)', 'SI', 'SI = desde el día siguiente al pedido y hasta la fecha límite, el agente que no envió recibe un recordatorio por día (con copia al team). Al pasar la fecha límite, el team recibe el resumen de quién cotizó y quién no.'],
     ['LINK'],
     ['formUrl', 'Link del formulario (aplicación web)', '', 'La URL /exec de Implementar > Gestionar implementaciones. Vacío = la que informa Google. Con esta se arman los links de los agentes.']
   ];
@@ -335,7 +335,7 @@ var Tarifador = (function () {
     var red = pct(v.reduccion, 0.15), redM = pct(v.reduccionMenor, 0.05);
     var cfg = {
       teamMails: String(v.teamMails || '').split(/[,;\s]+/).map(function (x) { return x.trim(); }).filter(function (x) { return /@/.test(x); }),
-      reduccion: red, reduccionMenor: redM, mostrarTarget: String(v.mostrarTarget).trim().toUpperCase() !== 'NO', diasAviso: num(v.diasAviso) >= 0 && v.diasAviso !== '' ? num(v.diasAviso) : 5, diasRecordatorio: num(v.diasRecordatorio) >= 0 && v.diasRecordatorio !== '' && v.diasRecordatorio !== undefined ? num(v.diasRecordatorio) : 2,
+      reduccion: red, reduccionMenor: redM, mostrarTarget: String(v.mostrarTarget).trim().toUpperCase() !== 'NO', diasAviso: num(v.diasAviso) >= 0 && v.diasAviso !== '' ? num(v.diasAviso) : 5, recordatorioDiario: String(v.recordatorioDiario === undefined ? 'SI' : v.recordatorioDiario).trim().toUpperCase() !== 'NO',
       baseUrl: String(v.baseUrl || '').trim(), auto: String(v.auto).trim().toUpperCase() !== 'NO',
       marIni: String(v.marIni || '').trim(), marNeg: String(v.marNeg || '').trim(), locales: num(v.locales) || 800,
       formUrl: String(v.formUrl || '').trim(), gastosUrl: String(v.gastosUrl || '').trim(), gastosHoja: String(v.gastosHoja || '').trim() || 'Concatenado de GS (ffww)', gastosMeses: num(v.gastosMeses) > 0 ? num(v.gastosMeses) : 1, airIni: String(v.airIni || '').trim(), airNeg: String(v.airNeg || '').trim(), imoTexto: String(v.imoTexto || '').trim() || 'Upon RQST', peso: num(v.peso) || 500
@@ -985,6 +985,8 @@ var Tarifador = (function () {
       var filas = g.filas.filter(function (i) { return aDia(datos[i][K.hasta]) === g.max; });
       if (filas.some(function (i) { return datos[i][K.aviso]; })) return;           // ya se avisó esta vigencia
       var a = ag[g.ffww]; if (!a || !a.activo) return;
+      var abiertos = leerPedidos().filter(function (p) { return !p.cerrado && !p.respondio && p.agente === a.nombre && p.modo === g.modo && aDia(new Date(p.limite)) >= hoy; });
+      if (abiertos.length) return;                                         // ya hay un pedido en curso (por ejemplo, lanzado a mano)
       var hasta = datos[filas[0]][K.hasta], dHasta = aFecha(hasta);
       var desde = new Date(dHasta.getFullYear(), dHasta.getMonth(), dHasta.getDate() + 1);
       var limite = new Date(Math.max(aDia(new Date()), new Date(dHasta.getFullYear(), dHasta.getMonth(), dHasta.getDate() - 1).getTime()));
@@ -1047,9 +1049,10 @@ var Tarifador = (function () {
       if (p.cerrado) return;
       if (!p.respondio && respondioPedido(datos, p)) p.respondio = fechaHora(new Date());
       var dias = Math.round((aDia(new Date(p.limite)) - hoy) / 86400000), a = ag[p.agente];
-      if (!p.respondio && !p.recordado && dias >= 0 && dias <= cfg.diasRecordatorio && a && a.activo && (a.email || cfg.teamMails.length)) {
+      var hoyTxt = fecha(new Date());
+      if (cfg.recordatorioDiario && !p.respondio && dias >= 0 && aDia(new Date(p.creado)) < hoy && String(p.recordado || '').slice(0, 10) !== hoyTxt && a && a.activo && (a.email || cfg.teamMails.length)) {
         mailPedido(cfg, a, p.modo, p.desde ? new Date(p.desde) : null, new Date(p.limite), null, true);
-        p.recordado = fechaHora(new Date()); enviados++;
+        p.recordado = fechaHora(new Date()); p.recordatorios = (p.recordatorios || 0) + 1; enviados++;
         registrar('Sistema', 'Recordatorio de pedido de tarifas', p.agente + ' · ' + p.modo + ' · límite ' + fechaCorta(new Date(p.limite)));
       }
       if (dias < 0) (cerrar[p.lote + '|' + p.limite] = cerrar[p.lote + '|' + p.limite] || []).push(p);
@@ -1057,7 +1060,7 @@ var Tarifador = (function () {
     Object.keys(cerrar).forEach(function (k) {
       var ps = cerrar[k], si = ps.filter(function (p) { return p.respondio; }), no = ps.filter(function (p) { return !p.respondio; });
       if (cfg.teamMails.length) {
-        var fila = function (p) { return [p.agente, p.modo, p.respondio || (p.recordado ? 'No (se le recordó el ' + p.recordado.slice(0, 10) + ')' : 'No')]; };
+        var fila = function (p) { return [p.agente, p.modo, p.respondio || (p.recordatorios ? 'No (' + p.recordatorios + ' recordatorio' + (p.recordatorios === 1 ? '' : 's') + ')' : 'No')]; };
         mandarMail({ to: cfg.teamMails.join(','), subject: 'BIDCOM | Cierre del pedido de tarifas (límite ' + fechaCorta(new Date(ps[0].limite)) + '): ' + si.length + ' cotizaron, ' + no.length + ' no',
           html: htmlEnvolver('<p>Cerró el pedido de tarifas' + (ps[0].origen === 'Manual' ? ' lanzado el ' + fechaLarga(new Date(ps[0].creado)) : ' por vencimiento') + ' con fecha límite ' + esc(fechaLarga(new Date(ps[0].limite))) + '.</p>' +
             (no.length ? '<p><b>No cotizaron (' + no.length + '):</b></p>' + htmlTabla(['Agente', 'Modo', 'Cotizó'], no.map(fila)) : '<p><b>Cotizaron todos.</b></p>') +
