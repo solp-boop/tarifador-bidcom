@@ -756,6 +756,39 @@ var Tarifador = (function () {
     registrar('BIDCOM', 'Volvió a pegar un envío', id + ' · ' + agente.nombre + ' · ' + lineas.length + ' tarifa(s)');
     return 'Envío ' + id + ' (' + agente.nombre + ', ' + lineas.length + ' tarifas):\n' + msg.join('\n') + '\n\nEl detalle (filas ajustadas o sin pegar) queda en el registro de ' + HOJA.AJUSTES + '.';
   }
+  // Borra todo lo de un agente (por nombre exacto): TARIFADOR Cotizaciones, base madre (marítimo y aéreo), base de gastos y pedidos.
+  // Pensado para el "Agente de prueba". Se ejecuta a mano desde el editor.
+  function limpiarAgente(nombre) {
+    var k = claveTexto(nombre), out = [];
+    var borrar = function (hoja, col, desde, etiqueta) {
+      var ultima = hoja.getLastRow(); if (ultima < desde) return;
+      var vals = hoja.getRange(desde, col, ultima - desde + 1, 1).getValues(), filas = [];
+      vals.forEach(function (r, i) { if (claveTexto(r[0]) === k) filas.push(desde + i); });
+      for (var j = filas.length - 1; j >= 0;) { var fin = filas[j], ini = fin; while (j > 0 && filas[j - 1] === ini - 1) { j--; ini = filas[j]; } hoja.deleteRows(ini, fin - ini + 1); j--; }
+      out.push(etiqueta + ': ' + filas.length + ' fila(s)');
+    };
+    var cfg = leerAjustes(), sh = hojaCotiz();
+    borrar(sh, K.ffww + 1, 2, HOJA.COTIZ);
+    [[cfg.marIni, MAPA_MARITIMO, 'ffww'], [cfg.marNeg, MAPA_MARITIMO, 'ffww'], [cfg.airIni, MAPA_AEREO, 'agente'], [cfg.airNeg, MAPA_AEREO, 'agente']].forEach(function (t) {
+      if (!t[0]) return;
+      try { var h = abrirDestino({ url: cfg.baseUrl }, t[0]), e = mapearEncabezados(h, t[1]); if (e && e.mapa[t[2]]) borrar(h, e.mapa[t[2]], Math.max(e.fila + 1, h.getLastRow() - 3999), t[0]); }
+      catch (eB) { out.push(t[0] + ': error ' + (eB && eB.message || eB)); }
+    });
+    if (cfg.gastosUrl) {
+      try {
+        var hg = SpreadsheetApp.openByUrl(cfg.gastosUrl).getSheetByName(cfg.gastosHoja), M = columnasGastos(hg), fl = hg.getFilter(), crit = [];
+        if (fl) { var rg = fl.getRange(); for (var c = rg.getColumn(); c <= rg.getLastColumn(); c++) { var cr = fl.getColumnFilterCriteria(c); if (cr) { crit.push([c, cr.copy().build()]); fl.removeColumnFilterCriteria(c); } } }
+        try { borrar(hg, M.agente, 2, cfg.gastosHoja); }
+        finally { SpreadsheetApp.flush(); var f2 = hg.getFilter(); if (f2) crit.forEach(function (x) { try { f2.setColumnFilterCriteria(x[0], x[1]); } catch (eC) { } }); }
+      } catch (eG) { out.push('Gastos: error ' + (eG && eG.message || eG)); }
+    }
+    var ped = leerPedidos(), quedan = ped.filter(function (p) { return claveTexto(p.agente) !== k; });
+    PropertiesService.getScriptProperties().setProperty(PROP_PEDIDOS, JSON.stringify(quedan));
+    out.push('Pedidos: ' + (ped.length - quedan.length));
+    registrar('BIDCOM', 'Borró los datos de ' + nombre, out.join(' · '));
+    Logger.log(out.join('\n'));
+    return out;
+  }
   function recalcularMenu() { recalcular(); SpreadsheetApp.getUi().alert('Listo. Se recalculó la comparación de todas las tarifas vigentes.'); }
   function redondear(v, mar) { return mar ? Math.round(v) : Math.round(v * 100) / 100; }
   function semaforo(valor, objetivo) {
@@ -1760,6 +1793,7 @@ var Tarifador = (function () {
     abrirPedido: abrirPedido,
     repegarEnvioMenu: repegarEnvioMenu,
     repegarEnvio: repegarEnvio,
+    limpiarAgente: limpiarAgente,
     pedirTarifas: pedirTarifas,
     procesarPedidos: procesarPedidos,
     num: num,
@@ -1825,6 +1859,8 @@ function tarifador_avisarVencimientos() { Tarifador.avisarVencimientosMenu(); }
 function tarifador_irACotizaciones() { Tarifador.irACotizaciones(); }
 function tarifador_pedirTarifas() { Tarifador.abrirPedido(); }
 function tarifadorPedirTarifas(d) { return Tarifador.pedirTarifas(d); }
+// Ejecutar a mano desde el editor: borra los datos del "Agente de prueba" (no toca a ningún otro agente)
+function tarifadorLimpiarAgentePrueba() { return Tarifador.limpiarAgente('Agente de prueba'); }
 function tarifador_repegarEnvio() { Tarifador.repegarEnvioMenu(); }
 function tarifador_panel() { Tarifador.abrirPanel(); }
 function tarifadorDatosPanel() { return Tarifador.datosPanel(); }
