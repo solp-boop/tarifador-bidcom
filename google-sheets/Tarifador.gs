@@ -75,7 +75,7 @@ var Tarifador = (function () {
     ['LINK'],
     ['formUrl', 'Link del formulario (aplicación web)', '', 'La URL /exec de Implementar > Gestionar implementaciones. Vacío = la que informa Google. Con esta se arman los links de los agentes.']
   ];
-  var COLS_AGENTES = ['Código', 'Nombre del agente (FFWW)', 'Email del agente', 'Activo (SI/NO)', 'Clave (automática)', 'Link personal (automático)', 'Contacto (columna Agente de la base)'];
+  var COLS_AGENTES = ['Código', 'Nombre del agente (FFWW)', 'Email del agente', 'Activo (SI/NO)', 'Clave (automática)', 'Link personal (automático)', 'Agente en origen (va a la columna Agente de la base; los mails van al FFWW)'];
   var LISTAS_DEF = [
     ['POL', 'Shanghai', 'Ningbo', 'Shenzhen', 'Yantian', 'Shekou', 'Qingdao', 'Tianjin', 'Xiamen', 'Nansha', 'Guangzhou', 'Hong Kong', 'Busan', 'Singapore'],
     ['POD', 'BUENOS AIRES', 'MONTEVIDEO', 'SANTOS'],
@@ -950,7 +950,7 @@ var Tarifador = (function () {
   function mailPedidoMejora(cfg, agente, filas) {
     var porModo = {};
     filas.forEach(function (f) { (porModo[f[K.modo]] = porModo[f[K.modo]] || []).push(f); });
-    var cuerpo = '<p>Hola ' + esc(agente.contacto || agente.nombre) + ':</p><p>Gracias por tu cotización. La revisamos y te pedimos mejorar las siguientes tarifas.</p>';
+    var cuerpo = '<p>Hola ' + esc(agente.nombre) + ':</p><p>Gracias por tu cotización. La revisamos y te pedimos mejorar las siguientes tarifas.</p>';
     Object.keys(porModo).forEach(function (m) {
       var mar = m === MODO.MAR, fs = porModo[m];
       var enc = ['Ruta', mar ? 'Naviera' : 'Aerolínea'].concat(mar ? ['Contenedor'] : []).concat(['Vigencia', 'Tu flete actual']).concat(cfg.mostrarTarget ? ['Flete objetivo'] : []).concat(['Comentario']);
@@ -1027,11 +1027,11 @@ var Tarifador = (function () {
   function mailPedido(cfg, a, modo, desde, limite, vence, recordatorio) {
     var mar = modo === MODO.MAR, desdeTxt = desde ? fechaLarga(desde) : '', limTxt = fechaLarga(limite), html;
     if (recordatorio) {
-      html = '<p>Hola ' + esc(a.contacto || a.nombre) + ':</p><p>Todavía no recibimos tus tarifas <b>' + modoTxt(modo) + '</b>' + (desdeTxt ? ' desde el <b>' + esc(desdeTxt) + '</b>' : '') +
+      html = '<p>Hola ' + esc(a.nombre) + ':</p><p>Todavía no recibimos tus tarifas <b>' + modoTxt(modo) + '</b>' + (desdeTxt ? ' desde el <b>' + esc(desdeTxt) + '</b>' : '') +
         '. Te recordamos que la fecha límite es el <b>' + esc(limTxt) + '</b>.</p>' + htmlBoton(linkDe(a), 'Cargar tarifas') +
         '<p>Si no tenés tarifa para alguna ruta, dejala sin cargar. Cualquier duda respondé este mail.</p><p>¡Gracias!<br>Equipo de Logística Internacional – BIDCOM</p>';
     } else {
-      html = '<p>Hola ' + esc(a.contacto || a.nombre) + ':</p>' +
+      html = '<p>Hola ' + esc(a.nombre) + ':</p>' +
         (vence ? '<p>Las tarifas ' + modoTxt(modo) + ' que tenemos cargadas de ' + esc(a.nombre) + ' vencen el <b>' + esc(fechaLarga(vence)) + '</b>. ' : '<p>') +
         'Te pedimos que nos envíes tus tarifas ' + modoTxt(modo) + (desdeTxt ? ' con vigencia desde el <b>' + esc(desdeTxt) + '</b>' : '') + '.</p>' +
         '<p style="font-size:15px"><b>Fecha límite para enviarlas: ' + esc(limTxt) + '.</b></p>' +
@@ -1285,7 +1285,7 @@ var Tarifador = (function () {
       var hasta = new Date(x.max), para = a.email || cfg.teamMails.join(',');
       if (!para) return;
       mandarMail({ to: para, cc: a.email ? cfg.teamMails.join(',') : '', replyTo: cfg.teamMails[0] || '', subject: 'BIDCOM · Tus gastos en origen vencen el ' + fechaCorta(hasta) + ': volvé a cotizarlos',
-        html: htmlEnvolver('<p>Hola ' + esc(a.contacto || a.nombre) + ':</p><p>Los <b>gastos en origen</b> que nos cotizaste vencen el <b>' + esc(fechaLarga(hasta)) + '</b>' +
+        html: htmlEnvolver('<p>Hola ' + esc(a.nombre) + ':</p><p>Los <b>gastos en origen</b> que nos cotizaste vencen el <b>' + esc(fechaLarga(hasta)) + '</b>' +
           (dias === 0 ? ' (hoy)' : ' (faltan ' + dias + ' día' + (dias === 1 ? '' : 's') + ')') + '. Los gastos en origen negociados tienen una validez de un mes: volvé a cotizarlos desde tu link.</p>' +
           '<p>Puertos: ' + esc(Object.keys(x.puertos).join(', ')) + '</p>' + htmlBoton(linkDe(a), 'Cotizar gastos en origen')) });
       props.setProperty(marca, fechaHora(new Date()));
