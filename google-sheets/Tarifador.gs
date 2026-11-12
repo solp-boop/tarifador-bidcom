@@ -1071,24 +1071,47 @@ var Tarifador = (function () {
     guardarPedidos(lista);
     return enviados;
   }
+  // Hasta cuándo tiene tarifa cargada cada agente, por modo: base madre (iniciales y negociadas) + TARIFADOR Cotizaciones
+  function coberturaAgentes(cfg) {
+    var cob = {}, desdeMin = Date.now() - 180 * 86400000;
+    var anotar = function (agente, modo, hasta) {
+      var k = claveTexto(agente); if (!k || !hasta) return;
+      var c = cob[k] = cob[k] || {}; if (!c[modo] || hasta > c[modo]) c[modo] = hasta;
+    };
+    [[cfg.marIni, MAPA_MARITIMO, false], [cfg.marNeg, MAPA_MARITIMO, false], [cfg.airIni, MAPA_AEREO, true], [cfg.airNeg, MAPA_AEREO, true]].forEach(function (t) {
+      leerBasePanel(cfg, t[0], '', t[1], desdeMin, t[2]).filas.forEach(function (f) { anotar(f[1], t[2] ? MODO.AIR : MODO.MAR, f[7]); });
+    });
+    try { valoresCotiz(hojaCotiz()).forEach(function (x) { if (x[K.vigente] === 'SI' && x[K.hasta] instanceof Date) anotar(x[K.ffww], x[K.modo], fecha(x[K.hasta])); }); } catch (e) { }
+    return cob;
+  }
   function abrirPedido() {
-    var cfg = leerAjustes(), act = cfg.agentes.filter(function (a) { return a.activo; });
+    var cfg = leerAjustes(), act = cfg.agentes.filter(function (a) { return a.activo; }), cob = coberturaAgentes(cfg);
     var hoy = new Date(), lim = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 3), desde = new Date(lim.getFullYear(), lim.getMonth(), lim.getDate() + 1);
     var iso = function (d) { return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd'); };
-    var html = '<div style="font:14px Arial,sans-serif;color:#15212e">' +
-      '<p style="margin:0 0 10px">Le llega un mail a cada agente marcado con su link y la fecha límite, con copia al team (' + esc(cfg.teamMails.join(', ') || 'sin mails del team') + ').</p>' +
+    var ags = act.map(function (a) { var c = cob[claveTexto(a.nombre)] || {}; return { n: a.nombre, e: a.email, mar: c[MODO.MAR] || '', air: c[MODO.AIR] || '' }; });
+    var html = '<div style="font:14px Arial,sans-serif;color:#15212e;box-sizing:border-box">' +
+      '<style>*{box-sizing:border-box}input,select{font:inherit}.ok{color:#1e7a3c}.no{color:#b3261e;font-weight:bold}.s{color:#5b6876;font-size:12px}</style>' +
+      '<p style="margin:0 0 10px">Quedan tildados solo los agentes activos <b>sin tarifa cargada</b> para esa vigencia (base madre y Tarifador). Les llega un mail con su link y la fecha límite, con copia al team.</p>' +
       '<label><b>Modo</b><br><select id="m" style="width:100%;padding:6px;margin:4px 0 10px"><option>Marítimo</option><option>Aéreo</option><option value="Ambos">Marítimo y aéreo</option></select></label>' +
       '<div style="display:flex;gap:10px"><label style="flex:1"><b>Vigencia desde</b><br><input type="date" id="d" value="' + iso(desde) + '" style="width:100%;padding:5px;margin:4px 0 10px"></label>' +
       '<label style="flex:1"><b>Fecha límite</b><br><input type="date" id="l" value="' + iso(lim) + '" style="width:100%;padding:5px;margin:4px 0 10px"></label></div>' +
-      '<b>Agentes activos</b><div style="max-height:170px;overflow:auto;border:1px solid #ddd;border-radius:6px;padding:6px;margin:4px 0 12px">' +
-      act.map(function (a, i) { return '<label style="display:block;padding:3px 0"><input type="checkbox" class="ag" value="' + esc(a.nombre) + '" checked> ' + esc(a.nombre) + (a.email ? ' <span style="color:#5b6876">(' + esc(a.email) + ')</span>' : ' <span style="color:#b3261e">(sin email: va al team)</span>') + '</label>'; }).join('') +
-      '</div><button id="b" style="background:#0B5F8A;color:#fff;border:0;border-radius:6px;padding:9px 16px;font-weight:bold;cursor:pointer">Enviar pedido</button> <span id="r" style="margin-left:8px"></span></div>' +
-      '<script>document.getElementById("b").onclick=function(){var ags=[].slice.call(document.querySelectorAll(".ag:checked")).map(function(x){return x.value;});' +
-      'var d={modo:document.getElementById("m").value,desde:document.getElementById("d").value,limite:document.getElementById("l").value,agentes:ags};' +
+      '<b>Agentes activos</b> <span class="s" id="cuenta"></span><div id="lista" style="max-height:210px;overflow:auto;border:1px solid #ddd;border-radius:6px;padding:6px;margin:4px 0 12px"></div>' +
+      '<button id="b" style="background:#0B5F8A;color:#fff;border:0;border-radius:6px;padding:9px 16px;font-weight:bold;cursor:pointer">Enviar pedido</button> <span id="r" style="margin-left:8px"></span></div>' +
+      '<script>var AG=' + JSON.stringify(ags).replace(/</g, '\\u003c') + ';' +
+      'function fc(s){var x=s.split("-");return x[2]+"/"+x[1];}function esc(t){return String(t).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[c];});}' +
+      'function pinta(){var m=document.getElementById("m").value,d=document.getElementById("d").value,ms=m==="Ambos"?["mar","air"]:[m==="Aéreo"?"air":"mar"],falt=0;' +
+      'document.getElementById("lista").innerHTML=AG.map(function(a,i){var fal=ms.filter(function(k){return !a[k]||a[k]<d;});if(fal.length)falt++;' +
+      'var est=ms.map(function(k){var nom=k==="mar"?"Marítimo":"Aéreo";return a[k]&&a[k]>=d?"<span class=ok>"+nom+": vigente hasta "+fc(a[k])+"</span>":"<span class=no>"+nom+": "+(a[k]?"venció el "+fc(a[k]):"sin tarifa cargada")+"</span>";}).join(" · ");' +
+      'return "<label style=\\"display:block;padding:4px 0;border-bottom:1px solid #f0f0f0\\"><input type=checkbox class=ag data-i="+i+" data-m=\\""+fal.join(",")+"\\""+(fal.length?" checked":"")+"> <b>"+esc(a.n)+"</b> <span class=s>"+(a.e?esc(a.e):"sin email: va al team")+"</span><br><span style=\\"margin-left:22px;font-size:12px\\">"+est+"</span></label>";}).join("");' +
+      'document.getElementById("cuenta").textContent="("+falt+" de "+AG.length+" sin tarifa)";}' +
+      'document.getElementById("m").onchange=pinta;document.getElementById("d").onchange=pinta;pinta();' +
+      'document.getElementById("b").onclick=function(){var m=document.getElementById("m").value,todos=m==="Ambos"?["mar","air"]:[m==="Aéreo"?"air":"mar"];' +
+      'var ags=[].slice.call(document.querySelectorAll(".ag:checked")).map(function(x){var f=x.getAttribute("data-m");return {nombre:AG[+x.getAttribute("data-i")].n,modos:(f?f.split(","):todos).map(function(k){return k==="air"?"Aéreo":"Marítimo";})};});' +
+      'var d={modo:m,desde:document.getElementById("d").value,limite:document.getElementById("l").value,agentes:ags};' +
       'if(!ags.length){document.getElementById("r").textContent="Marcá al menos un agente.";return;}if(!d.limite){document.getElementById("r").textContent="Falta la fecha límite.";return;}' +
       'this.disabled=true;document.getElementById("r").textContent="Enviando…";google.script.run.withSuccessHandler(function(n){document.getElementById("r").textContent="Listo: "+n+" mail(s) enviados.";setTimeout(function(){google.script.host.close();},2500);})' +
       '.withFailureHandler(function(e){document.getElementById("b").disabled=false;document.getElementById("r").textContent="Error: "+e.message;}).tarifadorPedirTarifas(d);};</script>';
-    SpreadsheetApp.getUi().showModalDialog(HtmlService.createHtmlOutput(html).setWidth(520).setHeight(470), 'Pedir tarifas a agentes activos');
+    SpreadsheetApp.getUi().showModalDialog(HtmlService.createHtmlOutput(html).setWidth(560).setHeight(560), 'Pedir tarifas a agentes activos');
   }
   function pedirTarifas(d) {
     exigirEditor();
@@ -1096,15 +1119,16 @@ var Tarifador = (function () {
     var desde = p(d.desde), limite = p(d.limite); if (!limite) throw new Error('Falta la fecha límite.');
     if (aDia(limite) < aDia(new Date())) throw new Error('La fecha límite ya pasó.');
     var modos = d.modo === 'Ambos' ? [MODO.MAR, MODO.AIR] : [d.modo === MODO.AIR ? MODO.AIR : MODO.MAR], lote = 'M' + Date.now(), nuevos = [], n = 0;
-    (d.agentes || []).forEach(function (nombre) {
-      var a = ag[nombre]; if (!a || !a.activo || (!a.email && !cfg.teamMails.length)) return;
-      modos.forEach(function (m) {
+    (d.agentes || []).forEach(function (x) {
+      var a = ag[typeof x === 'string' ? x : x.nombre]; if (!a || !a.activo || (!a.email && !cfg.teamMails.length)) return;
+      var ms = x && x.modos && x.modos.length ? x.modos.filter(function (m) { return modos.indexOf(m) >= 0; }) : modos;
+      ms.forEach(function (m) {
         mailPedido(cfg, a, m, desde, limite, null, false); n++;
         nuevos.push({ lote: lote, origen: 'Manual', creado: Date.now(), modo: m, agente: a.nombre, desde: desde ? desde.getTime() : null, limite: limite.getTime() });
       });
     });
     guardarPedidos(leerPedidos().concat(nuevos));
-    registrar(Session.getActiveUser().getEmail() || 'BIDCOM', 'Pedido de tarifas (manual)', d.modo + ' · desde ' + (desde ? fechaCorta(desde) : '-') + ' · límite ' + fechaCorta(limite) + ' · ' + (d.agentes || []).join(', '));
+    registrar(Session.getActiveUser().getEmail() || 'BIDCOM', 'Pedido de tarifas (manual)', d.modo + ' · desde ' + (desde ? fechaCorta(desde) : '-') + ' · límite ' + fechaCorta(limite) + ' · ' + (d.agentes || []).map(function (x) { return typeof x === 'string' ? x : x.nombre + ' (' + x.modos.join('/') + ')'; }).join(', '));
     return n;
   }
 
