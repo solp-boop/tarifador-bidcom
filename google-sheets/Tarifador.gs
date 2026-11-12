@@ -991,6 +991,8 @@ var Tarifador = (function () {
   /* ------------------------------------------------------------------ */
   function enviarDecisiones() {
     var ui = SpreadsheetApp.getUi(), cfg = leerAjustes(), sh = hojaCotiz(), datos = valoresCotiz(sh), pend = [], cuenta = { Aprobar: 0, 'Pedir mejora': 0, Descartar: 0 }, agentesMejora = {};
+    // Antes de mandar, se recalcula: el target sale con todo lo cargado hasta ahora (también lo cargado a mano en la base madre)
+    try { datos = recalcular(cfg, sh, datos); } catch (eR) { registrar('Sistema', 'Error al recalcular antes de enviar decisiones', String(eR && eR.message || eR)); }
     datos.forEach(function (x, i) {
       var d = DECISIONES.filter(function (k) { return claveTexto(k) === claveTexto(x[K.decision]); })[0];
       if (!d || x[K.enviada] || x[K.vigente] !== 'SI') return;
@@ -1071,6 +1073,7 @@ var Tarifador = (function () {
     SpreadsheetApp.getUi().alert(n ? 'Se mandaron ' + n + ' mail(s): pedidos por vencimiento, recordatorios o resúmenes de cierre.' : 'No hay pedidos, recordatorios ni cierres pendientes.');
   }
   function avisarVencimientos() {
+    try { recalcular(); } catch (eR) { registrar('Sistema', 'Error al recalcular (revisión diaria)', String(eR && eR.message || eR)); }
     var cfg = leerAjustes(), sh = hojaCotiz(), datos = valoresCotiz(sh), hoy = aDia(new Date()), grupos = {}, ag = agentesPorNombre(), enviados = 0;
     datos.forEach(function (x, i) {
       if (x[K.vigente] !== 'SI' || !x[K.id] || !(x[K.hasta] instanceof Date)) return;
