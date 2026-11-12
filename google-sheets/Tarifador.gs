@@ -1267,6 +1267,13 @@ var Tarifador = (function () {
     if (!Object.keys(rutas).length) return 0;
     var hoja = SpreadsheetApp.openByUrl(cfg.gastosUrl).getSheetByName(cfg.gastosHoja);
     if (!hoja) throw new Error('No existe la pestaña "' + cfg.gastosHoja + '" en la base de gastos en origen.');
+    // Si alguien dejó un filtro aplicado, Google no deja escribir en las filas que oculta: se suelta y se vuelve a poner igual al terminar
+    var filtro = hoja.getFilter(), criterios = [];
+    if (filtro) { var rf = filtro.getRange(); for (var cf = rf.getColumn(); cf <= rf.getLastColumn(); cf++) { var cr = filtro.getColumnFilterCriteria(cf); if (cr) { criterios.push([cf, cr.copy().build()]); filtro.removeColumnFilterCriteria(cf); } } }
+    try { return pegarGastosEnHoja(cfg, agente, rutas, hoja, id, ahora); }
+    finally { if (filtro && criterios.length) { SpreadsheetApp.flush(); var f2 = hoja.getFilter(); if (f2) criterios.forEach(function (c) { try { f2.setColumnFilterCriteria(c[0], c[1]); } catch (eC) { } }); } }
+  }
+  function pegarGastosEnHoja(cfg, agente, rutas, hoja, id, ahora) {
     var M = columnasGastos(hoja);
     ['agente', 'puerto', 'tipoCtnr', 'concepto', 'valor'].forEach(function (c) { if (!M[c]) throw new Error('La base de gastos no tiene la columna "' + c + '".'); });
     var ancho = Math.max.apply(null, Object.keys(M).map(function (k) { return M[k]; }));
