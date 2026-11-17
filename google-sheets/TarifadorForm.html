@@ -267,7 +267,7 @@ function mErrores() {
     conts.forEach(function (c) { if (isNaN(n(r.contenedores[c].dias))) e.push(p + 'faltan los días libres de ' + c); });
     if (isNaN(n(r.localesArg))) e.push(p + 'faltan los Locales ARG');
     var gs = r.gastos.filter(function (g) { return !vacio(g.importe); });
-    if (!gs.length) e.push(p + 'faltan los gastos en origen');
+    // Gastos en origen marítimos: opcionales por ahora (se cargan si el agente los tiene)
     gs.forEach(function (g) { if (g.extra && !String(g.descripcion || '').trim()) e.push(p + 'concepto adicional sin descripción'); });
   });
   return e;
@@ -326,7 +326,7 @@ function renderMar() {
   html += tipoEnvioHTML('mmotivo', mMotivo, u, pedidosDe('mar', mVig.desde).length);
   html += excelHTML('m');
   if (mPrecarga) html += '<p class="small muted" style="margin:-8px 0 0 4px">' + (mPrecarga === 'esta' ? 'Precargamos tu envío de esta vigencia: revisalo y enviá la nueva versión.' : 'Precargamos tu última cotización como punto de partida: actualizá lo que cambió.') + '</p>';
-  html += '<section class="panel"><h2>Lo importante</h2><div class="alert warn"><b>Gastos en origen.</b> Completalos concepto por concepto, con su unidad de cobro. BIDCOM los usa como base para una negociación específica de gastos en origen. <b>Los gastos en origen negociados tienen una validez de un mes</b>: pasado ese plazo, BIDCOM te va a pedir que los vuelvas a cotizar.</div>' +
+  html += '<section class="panel"><h2>Lo importante</h2><div class="alert warn"><b>Gastos en origen.</b> Si los tenés, completalos concepto por concepto, con su unidad de cobro (por ahora son opcionales). BIDCOM los usa como base para una negociación específica de gastos en origen. <b>Los gastos en origen negociados tienen una validez de un mes</b>: pasado ese plazo, BIDCOM te va a pedir que los vuelvas a cotizar.</div>' +
     '<ul class="notes"><li>Locales ARG: el valor aceptado por BIDCOM es USD ' + fmt(MR().localesAceptado) + '.</li>' +
     '<li>Cotizá cada contenedor con su valor y sus días libres.</li><li>Una naviera por ruta. La Recarga IMO, si aplica, va en su campo, en USD.</li></ul></section>';
   html += '<div class="layout"><div style="display:flex;flex-direction:column;gap:16px"><section class="panel"><h2>Rutas</h2><div style="display:flex;flex-direction:column;gap:12px">' + mForm.rutas.map(mRutaHTML).join('') + '</div>' +
@@ -853,11 +853,11 @@ function specMar(ejemplo) {
     return 'IF(' + rr('POL') + '="","",IF(OR(' + ['POD', 'Naviera', 'Tipo de servicio', 'Transit time (días)', 'Pagadero'].map(function (h) { return rr(h) + '=""'; }).join(',') + '),"Falta: POD, naviera, servicio, TT o pagadero",' +
       'IF(AND(ISNUMBER(SEARCH("TRAS",' + rr('Tipo de servicio') + ')),' + rr('Puerto de transbordo') + '=""),"Falta: puerto de transbordo",' +
       'IF(COUNT(' + fl.join(',') + ')=0,"Falta: flete de algún contenedor",IF(OR(' + fl.map(function (f, i) { return 'AND(' + f + '<>"",' + di[i] + '="")'; }).join(',') + '),"Falta: días libres",' +
-      'IF(' + rr('Locales ARG USD') + '="","Falta: Locales ARG",IF(COUNT(\'Gastos en origen\'!' + gc + g0 + ':' + gc + g1 + ')=0,"Falta: gastos en origen (columna Ruta ' + k + ')",' +
+      'IF(' + rr('Locales ARG USD') + '="","Falta: Locales ARG",IF(COUNT(\'Gastos en origen\'!' + gc + g0 + ':' + gc + g1 + ')=0,"Completa (sin gastos en origen)",' +
       'IF(' + rr('Locales ARG USD') + '>' + acept + ',"Revisar: Locales ARG sobre USD ' + acept + '","Completa"))))))))';
   };
   var controlGastos = function (j) { var col = letraXL(j), rf = F0 + (j - 3);
-    return 'IF(AND(Fletes!' + C('POL') + rf + '="",COUNT(' + col + g0 + ':' + col + g1 + ')=0),"",IF(Fletes!' + C('POL') + rf + '="","Revisar: ruta sin flete",IF(COUNT(' + col + g0 + ':' + col + g1 + ')=0,"Falta","Completa")))'; };
+    return 'IF(AND(Fletes!' + C('POL') + rf + '="",COUNT(' + col + g0 + ':' + col + g1 + ')=0),"",IF(Fletes!' + C('POL') + rf + '="","Revisar: ruta sin flete",IF(COUNT(' + col + g0 + ':' + col + g1 + ')=0,"Sin gastos (opcional)","Completa")))'; };
   return { nombre: 'BIDCOM_Cotizacion_Maritima_' + (ejemplo ? 'EJEMPLO' : 'TEMPLATE') + '.xlsx',
     instrucciones: { titulo: 'Cotización marítima BIDCOM', subtitulo: ejemplo ? 'EJEMPLO COMPLETO (datos ficticios): así queda bien cargado. Para cotizar, usá el TEMPLATE (archivo vacío).' : 'MODELO para completar. Cuando termines, subilo en tu link de BIDCOM.',
       importante: ['Gastos en origen: completalos en la solapa "Gastos en origen", concepto por concepto y por ruta. No envíes un total sin desglose: BIDCOM los usa como base para una negociación específica de gastos en origen. Los gastos en origen negociados tienen una validez de un mes.',

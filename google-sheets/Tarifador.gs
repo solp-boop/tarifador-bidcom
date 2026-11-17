@@ -582,7 +582,7 @@ var Tarifador = (function () {
       if (r.localesArg === '' || r.localesArg === null || r.localesArg === undefined || isNaN(num(r.localesArg))) err.push(p + 'faltan los Locales ARG.');
       ['imo'].forEach(function (k) { if (r[k] !== '' && r[k] !== null && r[k] !== undefined && isNaN(num(r[k]))) err.push(p + 'valor inválido en ' + { imo: 'Recarga IMO' }[k] + '.'); });
       var gastos = (r.gastos || []).filter(function (c) { return c.importe !== '' && c.importe !== null && c.importe !== undefined; });
-      if (!gastos.length) err.push(p + 'faltan los gastos en origen desglosados.');
+      // Gastos en origen marítimos: opcionales por ahora
       gastos.forEach(function (c) {
         if (isNaN(num(c.importe)) || num(c.importe) < 0) err.push(p + c.concepto + ': importe inválido.');
         if (!String(c.unidad || '').trim()) err.push(p + c.concepto + ': falta la unidad.');
