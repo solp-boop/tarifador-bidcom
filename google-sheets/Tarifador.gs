@@ -72,6 +72,7 @@ var Tarifador = (function () {
     ['gastosMeses', 'Validez de los gastos en origen (meses)', 1, 'Se escribe en la columna de validez. Unos días antes, el agente recibe un aviso para volver a cotizarlos.'],
     ['PEDIDOS DE TARIFAS'],
     ['recordatorioDiario', 'Recordatorio diario a quien no envió (SI/NO)', 'SI', 'SI = desde el día siguiente al pedido y hasta la fecha límite, el agente que no envió recibe un recordatorio por día (con copia al team). Al pasar la fecha límite, el team recibe el resumen de quién cotizó y quién no.'],
+    ['plazoSinTarifa', 'Plazo para cargar si no tiene tarifa (días)', 3, 'Agente activo sin tarifa vigente de un modo (marítimo o aéreo, mirando base madre y cotizador): se le pide automáticamente, con este plazo, y sigue el recordatorio diario.'],
     ['LINK'],
     ['formUrl', 'Link del formulario (aplicación web)', '', 'La URL /exec de Implementar > Gestionar implementaciones. Vacío = la que informa Google. Con esta se arman los links de los agentes.']
   ];
@@ -335,7 +336,7 @@ var Tarifador = (function () {
     var red = pct(v.reduccion, 0.15), redM = pct(v.reduccionMenor, 0.05);
     var cfg = {
       teamMails: String(v.teamMails || '').split(/[,;\s]+/).map(function (x) { return x.trim(); }).filter(function (x) { return /@/.test(x); }),
-      reduccion: red, reduccionMenor: redM, mostrarTarget: String(v.mostrarTarget).trim().toUpperCase() !== 'NO', diasAviso: num(v.diasAviso) >= 0 && v.diasAviso !== '' ? num(v.diasAviso) : 5, recordatorioDiario: String(v.recordatorioDiario === undefined ? 'SI' : v.recordatorioDiario).trim().toUpperCase() !== 'NO',
+      reduccion: red, reduccionMenor: redM, mostrarTarget: String(v.mostrarTarget).trim().toUpperCase() !== 'NO', diasAviso: num(v.diasAviso) >= 0 && v.diasAviso !== '' ? num(v.diasAviso) : 5, plazoSinTarifa: num(v.plazoSinTarifa) > 0 ? num(v.plazoSinTarifa) : 3, recordatorioDiario: String(v.recordatorioDiario === undefined ? 'SI' : v.recordatorioDiario).trim().toUpperCase() !== 'NO',
       baseUrl: String(v.baseUrl || '').trim(), auto: String(v.auto).trim().toUpperCase() !== 'NO',
       marIni: String(v.marIni || '').trim(), marNeg: String(v.marNeg || '').trim(), locales: num(v.locales) || 800,
       formUrl: String(v.formUrl || '').trim(), gastosUrl: String(v.gastosUrl || '').trim(), gastosHoja: String(v.gastosHoja || '').trim() || 'Concatenado de GS (ffww)', gastosMeses: num(v.gastosMeses) > 0 ? num(v.gastosMeses) : 1, airIni: String(v.airIni || '').trim(), airNeg: String(v.airNeg || '').trim(), imoTexto: String(v.imoTexto || '').trim() || 'Upon RQST', peso: num(v.peso) || 500
@@ -1099,6 +1100,7 @@ var Tarifador = (function () {
       registrar('Sistema', 'Pedido de tarifas (vencimiento)', g.ffww + ' · ' + g.modo + ' · vence ' + fechaCorta(hasta) + ' · límite ' + fechaCorta(limite));
       enviados++;
     });
+    try { enviados += pedirFaltantes(cfg); } catch (eF) { registrar('Sistema', 'Error al pedir tarifas faltantes', String(eF && eF.message || eF)); }
     try { enviados += procesarPedidos(cfg); } catch (eP) { registrar('Sistema', 'Error en los pedidos de tarifas', String(eP && eP.message || eP)); }
     try { enviados += avisarVencimientoGastos(cfg); } catch (eG) { registrar('Sistema', 'Error en el aviso de gastos en origen', String(eG && eG.message || eG)); }
     return enviados;
@@ -1187,6 +1189,33 @@ var Tarifador = (function () {
     });
     try { valoresCotiz(hojaCotiz()).forEach(function (x) { if (x[K.vigente] === 'SI' && x[K.hasta] instanceof Date) anotar(x[K.ffww], x[K.modo], fecha(x[K.hasta])); }); } catch (e) { }
     return cob;
+  }
+  // Cada agente activo debe tener tarifa vigente de cada modo (marítimo y aéreo, por separado).
+  // Sin tarifa, vencida o por vencer en N días (base madre + cotizador) y sin pedido en curso → pedido automático.
+  function pedirFaltantes(cfg, simular) {
+    var cob = coberturaAgentes(cfg), hoy = aDia(new Date()), abiertos = {}, n = 0, nuevos = [], plan = [];
+    leerPedidos().forEach(function (p) { if (!p.cerrado && !p.respondio) abiertos[claveTexto(p.agente) + '|' + p.modo] = true; });
+    var iso = function (d) { return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd'); };
+    cfg.agentes.forEach(function (a) {
+      if (!a.activo || /PRUEBA/i.test(a.codigo) || (!a.email && !cfg.teamMails.length)) return;
+      var c = cob[claveTexto(a.nombre)] || {};
+      [MODO.MAR, MODO.AIR].forEach(function (m) {
+        if (abiertos[claveTexto(a.nombre) + '|' + m]) return;
+        var h = c[m] ? aFecha(c[m]) : null, dias = h ? Math.round((aDia(h) - hoy) / 86400000) : -1;
+        if (h && dias > cfg.diasAviso) return;                                    // tiene tarifa vigente de sobra
+        var desde, limite, vence = null;
+        if (h && dias >= 0) { vence = h; desde = new Date(h.getFullYear(), h.getMonth(), h.getDate() + 1); limite = new Date(Math.max(hoy, new Date(h.getFullYear(), h.getMonth(), h.getDate() - 1).getTime())); }
+        else { var t = new Date(hoy); desde = t; limite = new Date(t.getFullYear(), t.getMonth(), t.getDate() + cfg.plazoSinTarifa); }
+        plan.push(a.nombre + ' · ' + m + ' · ' + (!h ? 'sin tarifa cargada' : dias < 0 ? 'vencida el ' + fechaCorta(h) : 'vence el ' + fechaCorta(h)) + ' · límite ' + fechaCorta(limite));
+        if (simular) return;
+        mailPedido(cfg, a, m, desde, limite, vence, false); n++;
+        nuevos.push({ lote: 'F' + iso(new Date()), origen: h ? 'Vencimiento' : 'Sin tarifa', creado: Date.now(), modo: m, agente: a.nombre, desde: desde.getTime(), limite: limite.getTime() });
+        registrar('Sistema', 'Pedido de tarifas (' + (!h ? 'sin tarifa cargada' : dias < 0 ? 'tarifa vencida' : 'por vencer') + ')', a.nombre + ' · ' + m + (h ? ' · última vigencia ' + fechaCorta(h) : '') + ' · límite ' + fechaCorta(limite));
+      });
+    });
+    if (simular) { Logger.log(plan.join('\n') || 'Nadie'); return plan; }
+    if (nuevos.length) guardarPedidos(leerPedidos().concat(nuevos));
+    return n;
   }
   function abrirPedido() {
     var cfg = leerAjustes(), act = cfg.agentes.filter(function (a) { return a.activo; }), cob = coberturaAgentes(cfg);
@@ -1797,6 +1826,7 @@ var Tarifador = (function () {
     repegarEnvioMenu: repegarEnvioMenu,
     repegarEnvio: repegarEnvio,
     limpiarAgente: limpiarAgente,
+    simularFaltantes: function () { return pedirFaltantes(leerAjustes(), true); },
     pedirTarifas: pedirTarifas,
     procesarPedidos: procesarPedidos,
     num: num,
@@ -1863,6 +1893,8 @@ function tarifador_irACotizaciones() { Tarifador.irACotizaciones(); }
 function tarifador_pedirTarifas() { Tarifador.abrirPedido(); }
 function tarifadorPedirTarifas(d) { return Tarifador.pedirTarifas(d); }
 // Ejecutar a mano desde el editor: borra los datos del "Agente de prueba" (no toca a ningún otro agente)
+// Ejecutar a mano desde el editor: lista a quién le pediría tarifas la revisión diaria (no manda nada)
+function tarifadorSimularFaltantes() { return Tarifador.simularFaltantes(); }
 function tarifadorLimpiarAgentePrueba() { return Tarifador.limpiarAgente('Agente de prueba'); }
 function tarifador_repegarEnvio() { Tarifador.repegarEnvioMenu(); }
 function tarifador_panel() { Tarifador.abrirPanel(); }
