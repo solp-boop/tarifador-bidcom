@@ -76,7 +76,7 @@ var Tarifador = (function () {
     ['LINK'],
     ['formUrl', 'Link del formulario (aplicación web)', '', 'La URL /exec de Implementar > Gestionar implementaciones. Vacío = la que informa Google. Con esta se arman los links de los agentes.']
   ];
-  var COLS_AGENTES = ['Código', 'Nombre del agente (FFWW)', 'Email del agente', 'Activo (SI/NO)', 'Clave (automática)', 'Link personal (automático)', 'Agente en origen (va a la columna Agente de la base; los mails van al FFWW)'];
+  var COLS_AGENTES = ['Código', 'Nombre del agente (FFWW)', 'Email del agente', 'Activo (SI/NO)', 'Clave (automática)', 'Link personal (automático)', 'Agente en origen (va a la columna Agente de la base; los mails van al FFWW)', 'Sin Locales ARG (SI = destino fuera de Argentina)'];
   var LISTAS_DEF = [
     ['POL', 'Shanghai', 'Ningbo', 'Shenzhen', 'Yantian', 'Shekou', 'Qingdao', 'Tianjin', 'Xiamen', 'Nansha', 'Guangzhou', 'Hong Kong', 'Busan', 'Singapore'],
     ['POD', 'BUENOS AIRES', 'MONTEVIDEO', 'SANTOS'],
@@ -346,7 +346,7 @@ var Tarifador = (function () {
     d.forEach(function (r, i) {
       if (!String(r[A + 1]).trim()) return;
       cfg.agentes.push({ fila: FILA_DATOS + i, codigo: String(r[A]).trim(), nombre: String(r[A + 1]).trim(), email: String(r[A + 2]).trim(), activo: String(r[A + 3]).trim().toUpperCase() === 'SI',
-        clave: String(r[A + 4]).trim(), link: String(r[A + 5]).trim(), contacto: String(r[A + 6] || '').trim() });
+        clave: String(r[A + 4]).trim(), link: String(r[A + 5]).trim(), contacto: String(r[A + 6] || '').trim(), sinLocales: String(r[A + 7] || '').trim().toUpperCase() === 'SI' });
     });
     var R = BLOQUE.RUTAS_AIR - 1;
     cfg.rutasAir = d.filter(function (r) { return String(r[R]).trim() && String(r[R + 2]).trim().toUpperCase() === 'SI'; })
@@ -460,7 +460,7 @@ var Tarifador = (function () {
     }
     var mar = armar(MODO.MAR), air = armar(MODO.AIR);
     return { agente: agente.nombre, hoy: fecha(new Date()), pedidos: pedidos,
-      mar: { localesAceptado: cfg.locales, listas: cfg.listas, contenedores: CONTENEDORES, ultimos: mar.ultimos, envios: mar.envios },
+      mar: { localesAceptado: cfg.locales, sinLocales: !!agente.sinLocales, listas: cfg.listas, contenedores: CONTENEDORES, ultimos: mar.ultimos, envios: mar.envios },
       air: { rutas: cfg.rutasAir, notas: cfg.notasAir, peso: cfg.peso, breaks: BREAKS, conceptos: CONCEPTOS, unidades: UNIDADES, ultimos: air.ultimos, envios: air.envios } };
   }
   function estadoParaAgente(e) {
@@ -480,7 +480,7 @@ var Tarifador = (function () {
     var agente = buscarAgente(clave);                 // la identidad sale de la clave, nunca del navegador
     if (!agente) throw new Error('Tu link ya no es válido. Pedile a BIDCOM uno nuevo.');
     var cfg = leerAjustes();
-    var errores = validarVigencia(envio).concat(modo === MODO.MAR ? validarEnvioMar(envio, cfg.listas) : validarEnvioAir(envio, cfg));
+    var errores = validarVigencia(envio).concat(modo === MODO.MAR ? validarEnvioMar(envio, cfg.listas, agente.sinLocales) : validarEnvioAir(envio, cfg));
     if (errores.length) return { ok: false, errores: errores };
 
     var lock = LockService.getScriptLock(); lock.waitLock(20000);
@@ -565,7 +565,7 @@ var Tarifador = (function () {
     return [];
   }
 
-  function validarEnvioMar(envio, listas) {
+  function validarEnvioMar(envio, listas, sinLocales) {
     var err = [];
     if (!envio || !envio.rutas || !envio.rutas.length) return ['No hay rutas cargadas.'];
     envio.rutas.forEach(function (r, i) {
@@ -579,7 +579,7 @@ var Tarifador = (function () {
       var conts = CONTENEDORES.filter(function (c) { return r.contenedores && r.contenedores[c] && num(r.contenedores[c].flete) > 0; });
       if (!conts.length) err.push(p + 'falta el flete de al menos un contenedor.');
       conts.forEach(function (c) { var d = r.contenedores[c].dias; if (d === '' || d === null || d === undefined || isNaN(num(d))) err.push(p + 'faltan los días libres de ' + c + '.'); });
-      if (r.localesArg === '' || r.localesArg === null || r.localesArg === undefined || isNaN(num(r.localesArg))) err.push(p + 'faltan los Locales ARG.');
+      if (!sinLocales && (r.localesArg === '' || r.localesArg === null || r.localesArg === undefined || isNaN(num(r.localesArg)))) err.push(p + 'faltan los Locales ARG.');
       ['imo'].forEach(function (k) { if (r[k] !== '' && r[k] !== null && r[k] !== undefined && isNaN(num(r[k]))) err.push(p + 'valor inválido en ' + { imo: 'Recarga IMO' }[k] + '.'); });
       var gastos = (r.gastos || []).filter(function (c) { return c.importe !== '' && c.importe !== null && c.importe !== undefined; });
       // Gastos en origen marítimos: opcionales por ahora
