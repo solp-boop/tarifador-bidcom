@@ -76,7 +76,7 @@ var Tarifador = (function () {
     ['LINK'],
     ['formUrl', 'Link del formulario (aplicación web)', '', 'La URL /exec de Implementar > Gestionar implementaciones. Vacío = la que informa Google. Con esta se arman los links de los agentes.']
   ];
-  var COLS_AGENTES = ['Código', 'Nombre del agente (FFWW)', 'Email del agente', 'Activo (SI/NO)', 'Clave (automática)', 'Link personal (automático)', 'Agente en origen (va a la columna Agente de la base; los mails van al FFWW)', 'Sin Locales ARG (SI = destino fuera de Argentina)'];
+  var COLS_AGENTES = ['Código', 'Nombre del agente (FFWW)', 'Email del agente', 'Activo (SI/NO)', 'Clave (automática)', 'Link personal (automático)', 'Agente en origen (va a la columna Agente de la base; los mails van al FFWW)', 'Destino fuera de Argentina (SI = cotiza Gastos locales en destino en lugar de Locales ARG)'];
   var LISTAS_DEF = [
     ['POL', 'Shanghai', 'Ningbo', 'Shenzhen', 'Yantian', 'Shekou', 'Qingdao', 'Tianjin', 'Xiamen', 'Nansha', 'Guangzhou', 'Hong Kong', 'Busan', 'Singapore'],
     ['POD', 'BUENOS AIRES', 'MONTEVIDEO', 'SANTOS'],
@@ -525,7 +525,7 @@ var Tarifador = (function () {
         f[K.tipo] = l.tipo; f[K.motivo] = l.motivo; f[K.desde] = desde; f[K.hasta] = hasta; f[K.origen] = l.origen; f[K.destino] = l.destino; f[K.carrier] = l.carrier; f[K.ctnr] = l.ctnr;
         f[K.flete] = l.flete; f[K.total] = l.total; f[K.locales] = l.locales; f[K.gorigen] = l.gorigen; f[K.estado] = l.estado;
         f[K.detalle] = JSON.stringify(modo === MODO.MAR ? { ruta: l.ruta, r: l.r } : { r: l.r, g: l.g });
-        var alerta = modo === MODO.MAR && l.locales > cfg.locales ? ' · Locales ARG USD ' + l.locales + ' (aceptado ' + cfg.locales + ')' : '';
+        var alerta = modo === MODO.MAR && !agente.sinLocales && l.locales > cfg.locales ? ' · Locales ARG USD ' + l.locales + ' (aceptado ' + cfg.locales + ')' : '';
         f[K.historial] = stamp + ' · Recibida v' + version + ', ' + l.tipo.toLowerCase() + ' (' + l.motivo + ')' + deArchivo + alerta;
         return f;
       });
@@ -579,7 +579,7 @@ var Tarifador = (function () {
       var conts = CONTENEDORES.filter(function (c) { return r.contenedores && r.contenedores[c] && num(r.contenedores[c].flete) > 0; });
       if (!conts.length) err.push(p + 'falta el flete de al menos un contenedor.');
       conts.forEach(function (c) { var d = r.contenedores[c].dias; if (d === '' || d === null || d === undefined || isNaN(num(d))) err.push(p + 'faltan los días libres de ' + c + '.'); });
-      if (!sinLocales && (r.localesArg === '' || r.localesArg === null || r.localesArg === undefined || isNaN(num(r.localesArg)))) err.push(p + 'faltan los Locales ARG.');
+      if (r.localesArg === '' || r.localesArg === null || r.localesArg === undefined || isNaN(num(r.localesArg))) err.push(p + (sinLocales ? 'faltan los gastos locales en destino.' : 'faltan los Locales ARG.'));
       ['imo'].forEach(function (k) { if (r[k] !== '' && r[k] !== null && r[k] !== undefined && isNaN(num(r[k]))) err.push(p + 'valor inválido en ' + { imo: 'Recarga IMO' }[k] + '.'); });
       var gastos = (r.gastos || []).filter(function (c) { return c.importe !== '' && c.importe !== null && c.importe !== undefined; });
       // Gastos en origen marítimos: opcionales por ahora
@@ -975,7 +975,7 @@ var Tarifador = (function () {
           { html: '<span style="background:' + (COLOR_SEM[sem] || 'transparent') + ';padding:2px 6px;border-radius:4px">' + esc(sem || '—') + '</span>' }, valorTxt(f[K.target], mar)])
         .concat(neg ? [f[K.ahorro] === '' ? '—' : valorTxt(f[K.ahorro], mar) + ' (' + pctTxt(f[K.ahorroPct]) + ')'] : []);
     });
-    var altos = mar ? filas.filter(function (f) { return num(f[K.locales]) > cfg.locales; }) : [];
+    var altos = mar && !agente.sinLocales ? filas.filter(function (f) { return num(f[K.locales]) > cfg.locales; }) : [];
     var titulo = neg ? agente.nombre + ' respondió con tarifas mejoradas' : motivo === MOTIVOS.correccion ? agente.nombre + ' corrigió su envío' : agente.nombre + ' cargó tarifas';
     var html = htmlEnvolver('<h2 style="margin:0 0 6px">' + esc(titulo) + '</h2>' +
       '<p>' + esc(modo) + ' · vigencia ' + esc(fechaCorta(filas[0][K.desde])) + ' al ' + esc(fechaCorta(filas[0][K.hasta])) + ' · versión ' + version + ' (' + esc(motivo.toLowerCase()) + ').</p>' +

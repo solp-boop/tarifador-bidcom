@@ -160,7 +160,7 @@ function pedidosHTML(m) {
   var ps = pedidosDe(m); if (!ps.length) return '';
   var mar = m === 'mar';
   return '<section class="panel"><div class="alert info"><h2 style="margin:0 0 6px">BIDCOM te pide mejorar estas tarifas</h2>' +
-    '<p class="small" style="margin:0 0 8px">Cargá los valores mejorados más abajo (ya está todo precargado) y enviá. ' + (mar ? 'Los valores son solo de flete por contenedor (sin Recarga IMO, Locales ARG ni gastos).' : 'Los valores son solo de flete USD/kg a ' + D.air.peso + ' kg (sin fuel, IMO ni gastos).') + '</p>' +
+    '<p class="small" style="margin:0 0 8px">Cargá los valores mejorados más abajo (ya está todo precargado) y enviá. ' + (mar ? 'Los valores son solo de flete por contenedor (sin Recarga IMO, ' + (MR().sinLocales ? 'gastos locales en destino' : 'Locales ARG') + ' ni gastos).' : 'Los valores son solo de flete USD/kg a ' + D.air.peso + ' kg (sin fuel, IMO ni gastos).') + '</p>' +
     '<div class="tablewrap"><table><thead><tr><th>Vigencia</th><th>Ruta</th><th>' + (mar ? 'Naviera' : 'Aerolínea') + '</th>' + (mar ? '<th>Contenedor</th>' : '') + '<th>Tu flete</th><th>Flete objetivo</th><th>Comentario</th></tr></thead><tbody>' +
     ps.map(function (p) { return '<tr><td>' + esc(fVig(p.desde, p.hasta)) + '</td><td>' + esc(p.origen + ' → ' + p.destino) + '</td><td>' + esc(p.carrier) + '</td>' + (mar ? '<td>' + esc(p.ctnr) + '</td>' : '') +
       '<td>USD ' + fmt(p.actual) + (mar ? '' : '/kg') + '</td><td>' + (p.objetivo !== '' ? '<b>USD ' + fmt(p.objetivo) + (mar ? '' : '/kg') + '</b>' : '<span class="muted">Tu mejor valor</span>') + '</td><td>' + esc(p.mensaje) + '</td></tr>'; }).join('') +
@@ -265,7 +265,7 @@ function mErrores() {
     var conts = C.filter(function (c) { return r.contenedores[c] && n(r.contenedores[c].flete) > 0; });
     if (!conts.length) e.push(p + 'falta el flete de al menos un contenedor');
     conts.forEach(function (c) { if (isNaN(n(r.contenedores[c].dias))) e.push(p + 'faltan los días libres de ' + c); });
-    if (!MR().sinLocales && isNaN(n(r.localesArg))) e.push(p + 'faltan los Locales ARG');
+    if (isNaN(n(r.localesArg))) e.push(p + (MR().sinLocales ? 'faltan los gastos locales en destino' : 'faltan los Locales ARG'));
     var gs = r.gastos.filter(function (g) { return !vacio(g.importe); });
     // Gastos en origen marítimos: opcionales por ahora (se cargan si el agente los tiene)
     gs.forEach(function (g) { if (g.extra && !String(g.descripcion || '').trim()) e.push(p + 'concepto adicional sin descripción'); });
@@ -278,6 +278,7 @@ function opciones(lista, val, vacioTxt) {
 }
 function mLocalesHint(v) {
   var x = n(v), A = MR().localesAceptado;
+  if (MR().sinLocales) return '<span class="hint">Gastos locales en el puerto de destino, en USD</span>';
   return !isNaN(x) && x > A ? '<span class="hint alto">Supera lo aceptado por BIDCOM (USD ' + fmt(A) + ')</span>' : '<span class="hint">Valor aceptado por BIDCOM: USD ' + fmt(A) + '</span>';
 }
 function mPedidoDe(r, c) {
@@ -305,7 +306,7 @@ function mRutaHTML(r, i) {
           '<td><input type="number" min="0" step="1" data-mr="' + i + '" data-mc="' + c + '" data-mck="dias" value="' + esc(x.dias) + '" class="' + (conFlete && isNaN(n(x.dias)) ? 'bad' : '') + '" aria-label="Días libres ' + c + '"></td></tr>'; }).join('') +
       '</tbody></table></div></div>' +
     '<div class="grid">' +
-      (MR().sinLocales ? '' : '<label>Locales ARG (USD)' + inp('localesArg', r.localesArg, isNaN(n(r.localesArg)), 'Locales ARG') + '<span data-mhint="' + i + '">' + mLocalesHint(r.localesArg) + '</span></label>') +
+      '<label>' + (MR().sinLocales ? 'Gastos locales en destino (USD)' : 'Locales ARG (USD)') + inp('localesArg', r.localesArg, isNaN(n(r.localesArg)), MR().sinLocales ? 'Gastos locales en destino' : 'Locales ARG') + '<span data-mhint="' + i + '">' + mLocalesHint(r.localesArg) + '</span></label>' +
       '<label>Recarga IMO (USD)' + inp('imo', r.imo, false, 'Recarga IMO') + '</label>' +
     '</div>' +
     '<div class="origin" style="border:1px solid var(--warn);border-radius:8px;padding:12px"><h3>Gastos en origen <span class="badge">Importante</span></h3>' +
@@ -327,7 +328,7 @@ function renderMar() {
   html += excelHTML('m');
   if (mPrecarga) html += '<p class="small muted" style="margin:-8px 0 0 4px">' + (mPrecarga === 'esta' ? 'Precargamos tu envío de esta vigencia: revisalo y enviá la nueva versión.' : 'Precargamos tu última cotización como punto de partida: actualizá lo que cambió.') + '</p>';
   html += '<section class="panel"><h2>Lo importante</h2><div class="alert warn"><b>Gastos en origen.</b> Si los tenés, completalos concepto por concepto, con su unidad de cobro (por ahora son opcionales). BIDCOM los usa como base para una negociación específica de gastos en origen. <b>Los gastos en origen negociados tienen una validez de un mes</b>: pasado ese plazo, BIDCOM te va a pedir que los vuelvas a cotizar.</div>' +
-    '<ul class="notes">' + (MR().sinLocales ? '' : '<li>Locales ARG: el valor aceptado por BIDCOM es USD ' + fmt(MR().localesAceptado) + '.</li>') +
+    '<ul class="notes">' + (MR().sinLocales ? '<li>Gastos locales en destino: obligatorios, en USD, para cada ruta.</li>' : '<li>Locales ARG: el valor aceptado por BIDCOM es USD ' + fmt(MR().localesAceptado) + '.</li>') +
     '<li>Cotizá cada contenedor con su valor y sus días libres.</li><li>Una naviera por ruta. La Recarga IMO, si aplica, va en su campo, en USD.</li></ul></section>';
   html += '<div class="layout"><div style="display:flex;flex-direction:column;gap:16px"><section class="panel"><h2>Rutas</h2><div style="display:flex;flex-direction:column;gap:12px">' + mForm.rutas.map(mRutaHTML).join('') + '</div>' +
     '<div style="margin-top:12px"><button type="button" class="btn" id="mmas">+ Agregar otra ruta</button></div></section></div>';
@@ -616,7 +617,7 @@ function mapaMarModelo() {
     m.push(['f' + c, ['FLETE ' + c, c].concat(extra.map(function (x) { return 'FLETE ' + x; }))]);
     m.push(['d' + c, ['DIAS LIBRES ' + c].concat(extra.map(function (x) { return 'DIAS LIBRES ' + x; }))]);
   });
-  return m.concat([['locales', ['LOCALES ARG USD', 'LOCALES ARG', 'LOCALES']], ['imo', ['RECARGA IMO']], ['coment', ['COMENTARIOS', 'OBSERVACIONES']]]);
+  return m.concat([['locales', ['LOCALES ARG USD', 'LOCALES ARG', 'GASTOS LOCALES DESTINO USD', 'GASTOS LOCALES EN DESTINO', 'GASTOS LOCALES DESTINO', 'LOCALES']], ['imo', ['RECARGA IMO']], ['coment', ['COMENTARIOS', 'OBSERVACIONES']]]);
 }
 var MAPA_MAR_ACTUAL = [['flete', ['VALOR FLETE']], ['ctnr', ['TIPO CTNR', 'TIPO DE CONTENEDOR', 'CONTENEDOR']], ['pol', ['POL']], ['pod', ['POD']], ['naviera', ['LINEA', 'NAVIERA']],
   ['servicio', ['TIPO DE SERVICIO']], ['transbordo', ['TRANSBORDO']], ['tt', ['TT', 'TRANSIT TIME']], ['desde', ['VALIDEZ QUINCENA DESDE', 'VIGENCIA DESDE', 'VALIDEZ DESDE']],
@@ -832,13 +833,13 @@ function specMar(ejemplo) {
     cols.push({ h: 'Días libres ' + c, w: 8, g: i % 2 ? 'c2' : 'c1', banda: c, num: true, tipo: 'opt', encG: 'dias' });
   });
   var sinLoc = !!MR().sinLocales;
-  cols = cols.concat((sinLoc ? [] : [{ h: 'Locales ARG USD', w: 10, g: 'rec', num: true, fmt: '#,##0', nota: 'Valor aceptado por BIDCOM: USD ' + acept + '.' }]).concat([
+  var hLoc = sinLoc ? 'Gastos locales destino USD' : 'Locales ARG USD';
+  cols = cols.concat([sinLoc ? { h: hLoc, w: 11, g: 'rec', num: true, fmt: '#,##0', nota: 'Gastos locales en el puerto de destino, en USD. Obligatorio.' } : { h: hLoc, w: 10, g: 'rec', num: true, fmt: '#,##0', nota: 'Valor aceptado por BIDCOM: USD ' + acept + '.' }].concat([
     { h: 'Recarga IMO USD', w: 9, g: 'rec', num: true, tipo: 'opt' },
     { h: 'Comentarios', w: 24, g: 'obs', tipo: 'opt' }, { h: 'Control', w: 30, g: 'ctrl', control: true }]));
   var ej = ejemplo ? [
     [1, 'Ningbo', 'BUENOS AIRES', 'MSC', 'DIRECTO', '', 38, 'COLLECT', 2700, 14, 3700, 14, '', '', 800, '', 'Ejemplo ficticio'],
     [2, 'Shanghai', 'BUENOS AIRES', 'MAERSK', 'TRASBORDO', 'Singapore', 42, 'COLLECT', 2650, 21, 3650, 21, 3900, 21, 800, 35, 'Ejemplo ficticio']] : [];
-  if (sinLoc) ej = ej.map(function (f) { var x = f.slice(); x.splice(8 + 2 * conts.length, 1); return x; });
   var filas = []; for (var i = 0; i < N; i++) filas.push(ej[i] || [i + 1]);
   filas = filas.map(function (f) { var x = f.slice(); while (x.length < cols.length) x.push(''); return x; });
   var conceptos = (L.conceptos || []).concat(['', '', '']);
@@ -855,7 +856,7 @@ function specMar(ejemplo) {
     return 'IF(' + rr('POL') + '="","",IF(OR(' + ['POD', 'Naviera', 'Tipo de servicio', 'Transit time (días)', 'Pagadero'].map(function (h) { return rr(h) + '=""'; }).join(',') + '),"Falta: POD, naviera, servicio, TT o pagadero",' +
       'IF(AND(ISNUMBER(SEARCH("TRAS",' + rr('Tipo de servicio') + ')),' + rr('Puerto de transbordo') + '=""),"Falta: puerto de transbordo",' +
       'IF(COUNT(' + fl.join(',') + ')=0,"Falta: flete de algún contenedor",IF(OR(' + fl.map(function (f, i) { return 'AND(' + f + '<>"",' + di[i] + '="")'; }).join(',') + '),"Falta: días libres",' +
-      (sinLoc ? 'IF(COUNT(\'Gastos en origen\'!' + gc + g0 + ':' + gc + g1 + ')=0,"Completa (sin gastos en origen)","Completa"))))))' :
+      (sinLoc ? 'IF(' + rr(hLoc) + '="","Falta: gastos locales en destino",IF(COUNT(\'Gastos en origen\'!' + gc + g0 + ':' + gc + g1 + ')=0,"Completa (sin gastos en origen)","Completa")))))))' :
       'IF(' + rr('Locales ARG USD') + '="","Falta: Locales ARG",IF(COUNT(\'Gastos en origen\'!' + gc + g0 + ':' + gc + g1 + ')=0,"Completa (sin gastos en origen)",' +
       'IF(' + rr('Locales ARG USD') + '>' + acept + ',"Revisar: Locales ARG sobre USD ' + acept + '","Completa"))))))))');
   };
@@ -864,7 +865,7 @@ function specMar(ejemplo) {
   return { nombre: 'BIDCOM_Cotizacion_Maritima_' + (ejemplo ? 'EJEMPLO' : 'TEMPLATE') + '.xlsx',
     instrucciones: { titulo: 'Cotización marítima BIDCOM', subtitulo: ejemplo ? 'EJEMPLO COMPLETO (datos ficticios): así queda bien cargado. Para cotizar, usá el TEMPLATE (archivo vacío).' : 'MODELO para completar. Cuando termines, subilo en tu link de BIDCOM.',
       importante: ['Gastos en origen: completalos en la solapa "Gastos en origen", concepto por concepto y por ruta. No envíes un total sin desglose: BIDCOM los usa como base para una negociación específica de gastos en origen. Los gastos en origen negociados tienen una validez de un mes.',
-        (sinLoc ? '' : 'Locales ARG: el valor aceptado por BIDCOM es USD ' + acept + '. ') + 'La Recarga IMO, si aplica, va en su columna, en USD. No se aceptan Fuel adjust ni Adicional puertos internos.',
+        (sinLoc ? 'Gastos locales en destino: obligatorios, en USD, en su columna. ' : 'Locales ARG: el valor aceptado por BIDCOM es USD ' + acept + '. ') + 'La Recarga IMO, si aplica, va en su columna, en USD. No se aceptan Fuel adjust ni Adicional puertos internos.',
         'Contenedores: 20ST, 40ST/40HQ (un solo valor para los dos) y 40NOR, cada uno con su valor y sus días libres.',
         'Una naviera por ruta. Si un recargo no está incluido, indicalo en su columna o en Comentarios, no dentro del nombre de la naviera.'],
       pasos: ['Arriba de la solapa Fletes completá Vigencia desde y Vigencia hasta. Puede ser 1 semana, 15 días o 1 mes.',
@@ -1015,7 +1016,7 @@ function libroConFormato(s) {
       ws.getRow(3).height = 22;
     }
     // Fila 4: bandas de grupo
-    var etiquetas = { ruta: h.gasto ? '' : 'RUTA Y SERVICIO', tarifa: 'TARIFA USD POR KG', rec: s.hojas[0] === h && h.cols.some(function (c) { return c.h === 'Locales ARG USD'; }) ? 'LOCALES ARG Y RECARGOS' : 'RECARGOS',
+    var etiquetas = { ruta: h.gasto ? '' : 'RUTA Y SERVICIO', tarifa: 'TARIFA USD POR KG', rec: s.hojas[0] === h && h.cols.some(function (c) { return c.h === 'Locales ARG USD' || c.h === 'Gastos locales destino USD'; }) ? (h.cols.some(function (c) { return c.h === 'Locales ARG USD'; }) ? 'LOCALES ARG Y RECARGOS' : 'GASTOS LOCALES Y RECARGOS') : 'RECARGOS',
       obs: 'OTROS', ctrl: 'CONTROL', gasto: 'QUÉ SE COBRA', monto: h.desdeCol === 3 ? 'IMPORTE USD POR RUTA' : 'IMPORTE POR AEROPUERTO' };
     var c0 = 1;
     while (c0 <= n) {
