@@ -438,10 +438,9 @@ function allin(r) {
     if (c.pedido || vacio(c.importe)) return s;
     return s + (c.unidad === 'Por kg' ? Math.max(n(c.minimo) || 0, n(c.importe) * W) : n(c.importe));
   }, 0);
-  var imo = r.imoPedido ? 0 : (n(r.imo) || 0);
-  return (Math.max(min, rate * W) + (n(r.fuel) + imo) * W + origen + n(r.destino_usd)) / W;
+  return (Math.max(min, rate * W) + n(r.fuel) * W + origen + n(r.destino_usd)) / W;   // carga general: sin IMO
 }
-function allinTxt(a) { return isNaN(a) ? '<span class="muted small">All-in: completá la ruta para calcularlo</span>' : 'All-in estimado a ' + A().peso + ' kg: <b>USD ' + fmt(a) + '/kg</b>'; }
+function allinTxt(a) { return isNaN(a) ? '<span class="muted small">All-in: completá la ruta para calcularlo</span>' : 'All-in estimado a ' + A().peso + ' kg, carga general (sin IMO): <b>USD ' + fmt(a) + '/kg</b>'; }
 function aPedidoDe(r) { return pedidosDe('air', aVig.desde).filter(function (p) { return mismo(p.origen, r.origen) && mismo(p.destino, r.destino); })[0]; }
 function rutaHTML(r, i) {
   function inp(k, v, bad, step, label) { return '<input type="number" min="0" step="' + (step || '0.01') + '" data-r="' + i + '" data-k="' + k + '" value="' + esc(v) + '" class="' + (bad ? 'bad' : '') + '" aria-label="' + esc(label) + '">'; }
@@ -887,7 +886,7 @@ function specAir(ejemplo) {
   var cols = [{ h: 'Origen', w: 17, g: 'ruta', tipo: 'auto' }, { h: 'Destino', w: 17, g: 'ruta', tipo: 'auto' }, { h: 'Aerolínea', w: 17, g: 'ruta' }, { h: 'Tránsito (días)', w: 8, g: 'ruta', num: true },
     { h: 'Mínimo', w: 8, g: 'tarifa', num: true, fmt: '0.00', nota: 'Cargo mínimo en USD.' }]
     .concat(A().breaks.map(function (b) { return { h: b + ' kg', w: 7, g: 'tarifa', num: true, fmt: '0.00', tipo: b === 45 ? 'opt' : 'req', nota: b === 45 ? 'Opcional.' : b === 100 ? 'USD por kg. Valores propios de cada ruta, no calculados a partir de otra.' : '' }; }))
-    .concat([{ h: 'Fuel USD/kg', w: 8, g: 'rec', num: true, fmt: '0.00' }, { h: 'IMO USD/kg', w: 9, g: 'rec', nota: 'Número, o escribí "A pedido": no se suma al all-in.' },
+    .concat([{ h: 'Fuel USD/kg', w: 8, g: 'rec', num: true, fmt: '0.00' }, { h: 'IMO USD/kg', w: 9, g: 'rec', nota: 'Número, o escribí "A pedido". No se suma al all-in de carga general.' },
       { h: 'Gastos destino USD', w: 10, g: 'obs', num: true }, { h: 'Observaciones', w: 22, g: 'obs', tipo: 'opt' }, { h: 'Control', w: 28, g: 'ctrl', control: true }]);
   var filas = R.map(function (r, i) {
     var base = [r.origen, r.destino];

@@ -1675,8 +1675,8 @@ var Tarifador = (function () {
     }, 0);
     var rate = tarifaAlPeso(f.tarifas || {}, W);
     if (isNaN(rate) || f.minimo === '' || isNaN(f.minimo)) return { origen: Math.round(origen * 100) / 100, allin: '' };
-    var imo = f.imoPedido ? 0 : (Number(f.imo) || 0);
-    var allin = (Math.max(f.minimo, rate * W) + ((Number(f.fuel) || 0) + imo) * W + origen + (Number(f.destino_usd) || 0)) / W;
+    // All-in de carga general: el recargo IMO no se suma (solo aplica a carga IMO)
+    var allin = (Math.max(f.minimo, rate * W) + (Number(f.fuel) || 0) * W + origen + (Number(f.destino_usd) || 0)) / W;
     return { origen: Math.round(origen * 100) / 100, allin: Math.round(allin * 10000) / 10000 };
   }
   function valorDe(campo, f, calc, cfg) {

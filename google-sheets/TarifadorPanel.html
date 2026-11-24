@@ -74,14 +74,16 @@
   <div class="seg grande" role="group" aria-label="Transporte"><button type="button" data-modo="mar" aria-pressed="true">Marítimo</button><button type="button" data-modo="air" aria-pressed="false">Aéreo</button></div>
   <label class="f">Período <select id="periodo"><option value="vig">Vigentes hoy</option><option value="30">Últimos 30 días</option><option value="90">Últimos 90 días</option><option value="365">Últimos 12 meses</option></select></label>
   <label class="f">Ruta <select id="ruta"><option value="">Todas</option></select></label>
-  <label class="f" id="fPeso" style="display:none">Peso <select id="peso"><option value="45">45 kg</option><option value="100">100 kg</option><option value="300">300 kg</option><option value="500" selected>500 kg</option><option value="1000">1000 kg</option></select></label>
+  <label class="f" id="fPeso" style="display:none">Peso <select id="peso"><option value="45">45 kg</option><option value="100">100 kg</option><option value="300">300 kg</option><option value="500" selected>500 kg</option><option value="1000">1000 kg</option><option value="otro">Otro…</option></select> <input id="pesoOtro" type="number" min="1" step="1" placeholder="kg" style="width:70px;display:none;font:inherit;border:1px solid var(--line);border-radius:6px;padding:5px 6px"></label>
+  <label class="f" id="fVer" style="display:none">Ver <select id="ver"><option value="allin">All-in</option><option value="flete">Solo flete</option></select></label>
+  <label class="f" id="fImo" style="display:none"><input type="checkbox" id="imo"> Carga IMO</label>
   <label class="f" id="fCtnr">Contenedor <select id="ctnr"><option value="">Todos</option><option>20ST</option><option>40ST/40HQ</option><option>40NOR</option></select></label>
   <label class="f">Agente <select id="agente"><option value="">Todos</option></select></label>
 </div>
 <main id="main"><div class="cargando">Leyendo la base madre…</div></main>
 
 <script>
-var D = null, S = { modo: 'mar', periodo: 'vig', ruta: '', ctnr: '', agente: '', peso: 500 }, ORD = {};
+var D = null, S = { modo: 'mar', periodo: 'vig', ruta: '', ctnr: '', agente: '', peso: 500, ver: 'allin', imo: false }, ORD = {};
 var PESOS = [45, 100, 300, 500, 1000];
 var DIA = 86400000;
 function $(s) { return document.querySelector(s); }
@@ -93,7 +95,8 @@ function pct(v, signo) { if (v === '' || v == null || isNaN(v)) return '—'; re
 function med(xs) { xs = xs.filter(function (x) { return x > 0; }).sort(function (a, b) { return a - b; }); if (!xs.length) return NaN; var m = Math.floor(xs.length / 2); return xs.length % 2 ? xs[m] : (xs[m - 1] + xs[m]) / 2; }
 function prom(xs) { xs = xs.filter(function (x) { return !isNaN(x); }); return xs.length ? xs.reduce(function (a, b) { return a + b; }, 0) / xs.length : NaN; }
 function chipHist(v) { if (isNaN(v)) return '<span class="chip neu">Sin histórico</span>'; var c = v <= -0.03 ? 'ok' : v <= 0.05 ? 'warn' : 'bad'; return '<span class="chip ' + c + '">' + pct(v, true) + '</span>'; }
-function unidad() { return S.modo === 'mar' ? 'USD por contenedor (flete + Recarga IMO)' : 'USD por kg para un embarque de ' + S.peso + ' kg (tarifa del tramo o mínimo + fuel + IMO + gastos en origen y destino), calculado por BIDCOM'; }
+function queMide() { return S.ver === 'flete' ? 'solo flete: tarifa del tramo × kg, o el mínimo si es mayor, sin fuel, IMO ni gastos' : 'all-in: tarifa del tramo o mínimo + fuel' + (S.imo ? ' + IMO' : '') + ' + gastos en origen y destino; ' + (S.imo ? 'carga IMO' : 'carga general, sin IMO'); }
+function unidad() { return S.modo === 'mar' ? 'USD por contenedor (flete + Recarga IMO)' : 'USD por kg para un embarque de ' + S.peso + ' kg (' + queMide() + '), calculado por BIDCOM'; }
 // Costo por kg de un embarque de W kg. c = [mínimo, +45, +100, +300, +500, +1000, fuel, imo, origen, destino]
 function costoKg(c, W) {
   if (!c) return { kg: NaN };
@@ -101,13 +104,17 @@ function costoKg(c, W) {
   PESOS.forEach(function (x) { if (x <= W && Number(rates[x]) > 0) b = x; });
   if (!b) return { kg: NaN, sinTramo: true };
   var n = function (v) { return Number(v) > 0 ? Number(v) : 0; }, rate = Number(rates[b]), flete = Math.max(n(c[0]), rate * W), usaMin = n(c[0]) > rate * W;
-  var total = flete + (n(c[6]) + n(c[7])) * W + n(c[8]) + n(c[9]);
-  return { kg: Math.round(total / W * 100) / 100, total: total, tramo: b, rate: rate, usaMin: usaMin, min: n(c[0]), fuel: n(c[6]), imo: n(c[7]), origen: n(c[8]), destino: n(c[9]) };
+  var imoSC = S.imo && (c[7] === '' || c[7] == null);                 // carga IMO y el agente lo tiene "a pedido"
+  var imo = S.imo ? n(c[7]) : 0;
+  var total = S.ver === 'flete' ? flete : flete + (n(c[6]) + imo) * W + n(c[8]) + n(c[9]);
+  return { kg: Math.round(total / W * 100) / 100, total: total, tramo: b, rate: rate, usaMin: usaMin, min: n(c[0]), fuel: n(c[6]), imo: imo, imoSC: imoSC, origen: n(c[8]), destino: n(c[9]) };
 }
 function detalleTxt(d, W) {
   if (!d || isNaN(d.kg)) return '';
   var f = function (v) { return Number(v).toLocaleString('es-AR', { maximumFractionDigits: 2 }); };
-  return (d.usaMin ? 'Aplica el mínimo USD ' + f(d.min) : 'Tarifa +' + d.tramo + ': USD ' + f(d.rate) + '/kg') + ' · fuel ' + f(d.fuel) + '/kg' + (d.imo ? ' · IMO ' + f(d.imo) + '/kg' : '') +
+  var fl = d.usaMin ? 'Aplica el mínimo USD ' + f(d.min) + ' (tarifa +' + d.tramo + ': USD ' + f(d.rate) + '/kg)' : 'Tarifa +' + d.tramo + ': USD ' + f(d.rate) + '/kg';
+  if (S.ver === 'flete') return fl + ' · flete del embarque de ' + W + ' kg: USD ' + f(d.total);
+  return fl + ' · fuel ' + f(d.fuel) + '/kg' + (S.imo ? (d.imoSC ? ' · IMO a pedido (sin cotizar, no sumado)' : ' · IMO ' + f(d.imo) + '/kg') : '') +
     ' · origen USD ' + f(d.origen) + ' · destino USD ' + f(d.destino) + ' · total del embarque de ' + W + ' kg: USD ' + f(d.total);
 }
 
@@ -191,6 +198,8 @@ function render() {
   if (!D) return;
   $('#fCtnr').style.display = S.modo === 'mar' ? '' : 'none';
   $('#fPeso').style.display = S.modo === 'air' ? '' : 'none';
+  $('#fVer').style.display = S.modo === 'air' ? '' : 'none';
+  $('#fImo').style.display = S.modo === 'air' && S.ver !== 'flete' ? '' : 'none';
   var R = calcular(), pendModo = D.pend.filter(function (p) { return p[3] === S.modo; });
   var mejoresVsHist = R.filasMejor.map(function (f) { return f.vsHist; }).filter(function (x) { return !isNaN(x); });
   var ahorroProm = prom(R.negs.map(function (n) { return n.ahorro; })), ahorroPct = prom(R.negs.map(function (n) { return n.pct; }));
@@ -205,7 +214,7 @@ function render() {
     kpi('Vencen en ' + (D.diasAviso || 5) + ' días', R.vencen.length, R.vencen.length ? Object.keys(R.vencen.reduce(function (m, r) { m[r.agente] = 1; return m; }, {})).length + ' agente(s)' : 'Ninguna', R.vencen.length > 0) +
     '</section>';
   h += '<section class="panel"><h2>Cómo estamos con las cotizaciones ' + (S.modo === 'mar' ? 'marítimas' : 'aéreas') + '</h2><p class="sub">Cada agente activo: hasta cuándo tiene tarifa ' + (S.modo === 'mar' ? 'marítima' : 'aérea') + ' (base madre y Tarifador), ' + (S.modo === 'mar' ? 'cuántas rutas tiene vigentes hoy' : 'qué aeropuertos tiene vigentes hoy') + ' y si hay un pedido en curso.</p>' + tablaCobertura() + '</section>';
-  if (S.modo === 'air') h += '<section class="panel"><h2>Mejor opción en cada tramo de peso</h2><p class="sub">Para cada aeropuerto y cada peso de embarque: quién sale más barato y cuánto pagaríamos por kg, todo incluido (tarifa del tramo o mínimo, fuel, IMO y gastos en origen y destino), calculado por BIDCOM con lo que cargó cada agente. Debajo, el segundo. "—": nadie cotizó ese tramo. Pasá el mouse para ver el detalle.</p>' + tablaTramos() + '</section>';
+  if (S.modo === 'air') h += '<section class="panel"><h2>Mejor opción en cada tramo de peso</h2><p class="sub">Para cada aeropuerto y cada peso de embarque: quién sale más barato y cuánto pagaríamos por kg (' + queMide() + '), calculado por BIDCOM con lo que cargó cada agente.' + (S.imo && S.ver !== 'flete' ? ' "IMO s/c": el agente tiene el IMO a pedido, así que su precio no lo incluye.' : '') + ' Debajo, el segundo. "—": nadie cotizó ese tramo. Pasá el mouse para ver el detalle.</p>' + tablaTramos() + '</section>';
   h += '<section class="panel"><h2>Quién tiene la tarifa más baja ' + (S.modo === 'mar' ? 'por puerto' : 'por aeropuerto') + '</h2><p class="sub">' + unidad() + (S.modo === 'mar' ? ', contenedor ' + ctnrMatriz() + (S.ctnr ? '' : ' (elegí otro arriba, en Contenedor)') : '') + '. La mejor oferta de cada agente en el período. En verde, la más baja de cada columna; en el resto, cuánto está por encima.</p>' + tablaMatriz(R) + '</section>';
   h += '<section class="panel"><h2>Mejor tarifa por ' + (S.modo === 'mar' ? 'ruta y contenedor' : 'ruta') + '</h2><p class="sub">' + unidad() + '. La mejor oferta de cada agente en el período, comparada con la mediana de los 6 meses anteriores.</p>' + tablaMejor(R) + '</section>';
   h += '<div class="grid2"><section class="panel"><h2>Ranking de agentes</h2><p class="sub">Sobre las ' + (S.modo === 'mar' ? 'rutas-contenedor' : 'rutas') + ' del período. "Vs la mejor" es cuánto está, en promedio, por encima de la oferta más baja.</p>' + tablaRanking(R) + '</section>' +
@@ -263,8 +272,9 @@ function tablaMatriz(R) {
       var r = g.lista.filter(function (x) { return x.agente === a; })[0];
       if (!r) return '<td class="vacio2">—</td>';
       var tip = esc(r.carrier + ' · desde ' + fCorta(r.dDesde) + (r.dHasta ? ' hasta ' + fCorta(r.dHasta) : '') + (r.det ? ' · ' + detalleTxt(r.det, S.peso) : ''));
-      if (r === g.mejor) return '<td class="n best" title="' + tip + '">' + usd(r.precio) + ' <span style="font-weight:600;font-size:11px">· más baja</span></td>';
-      return '<td class="n" title="' + tip + '">' + usd(r.precio) + ' <span class="m">' + pct(r.precio / g.mejor.precio - 1, true) + '</span></td>';
+      var sc = r.det && r.det.imoSC ? ' <span class="chip warn">IMO s/c</span>' : '';
+      if (r === g.mejor) return '<td class="n best" title="' + tip + '">' + usd(r.precio) + ' <span style="font-weight:600;font-size:11px">· más baja</span>' + sc + '</td>';
+      return '<td class="n" title="' + tip + '">' + usd(r.precio) + ' <span class="m">' + pct(r.precio / g.mejor.precio - 1, true) + '</span>' + sc + '</td>';
     }).join('') + '<td class="n">' + st[a].gan + ' de ' + grupos.length + '</td></tr>';
   }).join('');
   var top = '<tr class="ganador"><td><b>Agente con la más baja</b></td>' + grupos.map(function (g) { return '<td class="n"><b>' + esc(g.mejor.agente) + '</b><br><span class="m">' + esc(g.mejor.carrier) + ' · ' + usd(g.mejor.precio) + '</span></td>'; }).join('') + '<td></td></tr>';
@@ -284,8 +294,9 @@ function tablaTramos() {
         var l = Object.keys(mejor).map(function (a) { return mejor[a]; }).sort(function (a, b) { return a.d.kg - b.d.kg; });
         if (!l.length) return '<td class="vacio2">—</td>';
         var tip = esc(l[0].r.agente + ' · ' + l[0].r.carrier + ' · ' + detalleTxt(l[0].d, W));
-        return '<td title="' + tip + '"><b>' + esc(l[0].r.agente) + '</b> <span style="color:var(--ok);font-weight:700">USD ' + l[0].d.kg.toLocaleString('es-AR', { minimumFractionDigits: 2 }) + '/kg</span>' +
-          (l[1] ? '<br><span class="m">2.º ' + esc(l[1].r.agente) + ' ' + l[1].d.kg.toLocaleString('es-AR', { minimumFractionDigits: 2 }) + ' (' + pct(l[1].d.kg / l[0].d.kg - 1, true) + ')</span>' : '<br><span class="m">Única oferta</span>') + '</td>';
+        var sc = function (x) { return x.d.imoSC ? ' <span class="chip warn">IMO s/c</span>' : ''; };
+        return '<td title="' + tip + '"><b>' + esc(l[0].r.agente) + '</b> <span style="color:var(--ok);font-weight:700">USD ' + l[0].d.kg.toLocaleString('es-AR', { minimumFractionDigits: 2 }) + '/kg</span>' + sc(l[0]) +
+          (l[1] ? '<br><span class="m">2.º ' + esc(l[1].r.agente) + ' ' + l[1].d.kg.toLocaleString('es-AR', { minimumFractionDigits: 2 }) + ' (' + pct(l[1].d.kg / l[0].d.kg - 1, true) + ')</span>' + sc(l[1]) : '<br><span class="m">Única oferta</span>') + '</td>';
       }).join('') + '</tr>';
     }).join('') + '</tbody></table></div>';
 }
@@ -378,7 +389,10 @@ $('#periodo').onchange = function () { S.periodo = this.value; render(); };
 $('#ruta').onchange = function () { S.ruta = this.value; S.evo = ''; render(); };
 $('#ctnr').onchange = function () { S.ctnr = this.value; S.evo = ''; render(); };
 $('#agente').onchange = function () { S.agente = this.value; render(); };
-$('#peso').onchange = function () { S.peso = Number(this.value); render(); };
+$('#peso').onchange = function () { var o = $('#pesoOtro'); if (this.value === 'otro') { o.style.display = ''; o.focus(); if (Number(o.value) > 0) { S.peso = Number(o.value); render(); } return; } o.style.display = 'none'; S.peso = Number(this.value); render(); };
+$('#pesoOtro').onchange = function () { var v = Math.round(Number(this.value)); if (v > 0) { S.peso = v; render(); } };
+$('#ver').onchange = function () { S.ver = this.value; render(); };
+$('#imo').onchange = function () { S.imo = this.checked; render(); };
 $('#recargar').onclick = cargar;
 if (window.google && google.script) cargar(); else if (window.DEMO) { D = window.DEMO; opcionesFiltros(); render(); }
 </script>
