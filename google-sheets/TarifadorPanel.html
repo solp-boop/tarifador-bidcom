@@ -74,13 +74,15 @@
   <div class="seg grande" role="group" aria-label="Transporte"><button type="button" data-modo="mar" aria-pressed="true">Marítimo</button><button type="button" data-modo="air" aria-pressed="false">Aéreo</button></div>
   <label class="f">Período <select id="periodo"><option value="vig">Vigentes hoy</option><option value="30">Últimos 30 días</option><option value="90">Últimos 90 días</option><option value="365">Últimos 12 meses</option></select></label>
   <label class="f">Ruta <select id="ruta"><option value="">Todas</option></select></label>
+  <label class="f" id="fPeso">Peso <select id="peso"><option value="45">45 kg</option><option value="100">100 kg</option><option value="300">300 kg</option><option value="500" selected>500 kg</option><option value="1000">1000 kg</option></select></label>
   <label class="f" id="fCtnr">Contenedor <select id="ctnr"><option value="">Todos</option><option>20ST</option><option>40ST/40HQ</option><option>40NOR</option></select></label>
   <label class="f">Agente <select id="agente"><option value="">Todos</option></select></label>
 </div>
 <main id="main"><div class="cargando">Leyendo la base madre…</div></main>
 
 <script>
-var D = null, S = { modo: 'mar', periodo: 'vig', ruta: '', ctnr: '', agente: '' }, ORD = {};
+var D = null, S = { modo: 'mar', periodo: 'vig', ruta: '', ctnr: '', agente: '', peso: 500 }, ORD = {};
+var PESOS = [45, 100, 300, 500, 1000];
 var DIA = 86400000;
 function $(s) { return document.querySelector(s); }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -91,11 +93,38 @@ function pct(v, signo) { if (v === '' || v == null || isNaN(v)) return '—'; re
 function med(xs) { xs = xs.filter(function (x) { return x > 0; }).sort(function (a, b) { return a - b; }); if (!xs.length) return NaN; var m = Math.floor(xs.length / 2); return xs.length % 2 ? xs[m] : (xs[m - 1] + xs[m]) / 2; }
 function prom(xs) { xs = xs.filter(function (x) { return !isNaN(x); }); return xs.length ? xs.reduce(function (a, b) { return a + b; }, 0) / xs.length : NaN; }
 function chipHist(v) { if (isNaN(v)) return '<span class="chip neu">Sin histórico</span>'; var c = v <= -0.03 ? 'ok' : v <= 0.05 ? 'warn' : 'bad'; return '<span class="chip ' + c + '">' + pct(v, true) + '</span>'; }
-function unidad() { return S.modo === 'mar' ? 'USD por contenedor (flete + Recarga IMO)' : 'USD por kg all-in'; }
+function unidad() { return S.modo === 'mar' ? 'USD por contenedor (flete + Recarga IMO)' : 'USD por kg para un embarque de ' + S.peso + ' kg (tarifa del tramo o mínimo + fuel + IMO + gastos en origen y destino), calculado por BIDCOM'; }
+// Costo por kg de un embarque de W kg. c = [mínimo, +45, +100, +300, +500, +1000, fuel, imo, origen, destino]
+function costoKg(c, W) {
+  if (!c) return { kg: NaN };
+  var rates = { 45: c[1], 100: c[2], 300: c[3], 500: c[4], 1000: c[5] }, b = 0;
+  PESOS.forEach(function (x) { if (x <= W && Number(rates[x]) > 0) b = x; });
+  if (!b) return { kg: NaN, sinTramo: true };
+  var n = function (v) { return Number(v) > 0 ? Number(v) : 0; }, rate = Number(rates[b]), flete = Math.max(n(c[0]), rate * W), usaMin = n(c[0]) > rate * W;
+  var total = flete + (n(c[6]) + n(c[7])) * W + n(c[8]) + n(c[9]);
+  return { kg: Math.round(total / W * 100) / 100, total: total, tramo: b, rate: rate, usaMin: usaMin, min: n(c[0]), fuel: n(c[6]), imo: n(c[7]), origen: n(c[8]), destino: n(c[9]) };
+}
+function detalleTxt(d, W) {
+  if (!d || isNaN(d.kg)) return '';
+  var f = function (v) { return Number(v).toLocaleString('es-AR', { maximumFractionDigits: 2 }); };
+  return (d.usaMin ? 'Aplica el mínimo USD ' + f(d.min) : 'Tarifa +' + d.tramo + ': USD ' + f(d.rate) + '/kg') + ' · fuel ' + f(d.fuel) + '/kg' + (d.imo ? ' · IMO ' + f(d.imo) + '/kg' : '') +
+    ' · origen USD ' + f(d.origen) + ' · destino USD ' + f(d.destino) + ' · total del embarque de ' + W + ' kg: USD ' + f(d.total);
+}
 
 // Registro: [tipo, agente, origen, destino, carrier, ctnr, desde, hasta, precio, extra, fila]
-function registros() {
-  return (D[S.modo] || []).map(function (r) { return { tipo: r[0], agente: r[1], origen: r[2], destino: r[3], carrier: r[4], ctnr: r[5], desde: dia(r[6]), hasta: dia(r[7]), dDesde: r[6], dHasta: r[7], precio: r[8], extra: r[9], fila: r[10] }; });
+function registros(todos) {
+  var out = (D[S.modo] || []).map(function (r) {
+    var x = { tipo: r[0], agente: r[1], origen: r[2], destino: r[3], carrier: r[4], ctnr: r[5], desde: dia(r[6]), hasta: dia(r[7]), dDesde: r[6], dHasta: r[7], precio: r[8], extra: r[9], fila: r[10], comp: r[11] };
+    if (S.modo === 'air' && x.comp) { x.det = costoKg(x.comp, S.peso); x.precio = x.det.kg; }
+    return x;
+  });
+  return todos ? out : out.filter(function (x) { return x.precio > 0; });
+}
+// Vigentes hoy: si un agente tiene más de una tarifa para la misma ruta y aerolínea/naviera, vale la última cargada
+function ultimaCarga(lista) {
+  var m = {};
+  lista.forEach(function (r) { var k = [r.agente, grupoDe(r), r.carrier].join('|'), a = m[k]; if (!a || r.desde > a.desde || (r.desde === a.desde && r.fila > a.fila)) m[k] = r; });
+  return Object.keys(m).map(function (k) { return m[k]; });
 }
 function rutaDe(r) { return r.origen + ' → ' + r.destino; }
 function grupoDe(r) { return rutaDe(r) + (S.modo === 'mar' ? ' · ' + r.ctnr : ''); }
@@ -116,6 +145,7 @@ function pasaFiltros(r, sinAgente) {
 function calcular() {
   var todos = registros(), base = todos.filter(function (r) { return pasaFiltros(r, true); });
   var per = base.filter(enPeriodo);
+  if (S.periodo === 'vig') per = ultimaCarga(per);
   // Por grupo (ruta + contenedor): la mejor oferta de cada agente en el período
   var grupos = {};
   per.forEach(function (r) {
@@ -160,6 +190,7 @@ function calcular() {
 function render() {
   if (!D) return;
   $('#fCtnr').style.display = S.modo === 'mar' ? '' : 'none';
+  $('#fPeso').style.display = S.modo === 'air' ? '' : 'none';
   var R = calcular(), pendModo = D.pend.filter(function (p) { return p[3] === S.modo; });
   var mejoresVsHist = R.filasMejor.map(function (f) { return f.vsHist; }).filter(function (x) { return !isNaN(x); });
   var ahorroProm = prom(R.negs.map(function (n) { return n.ahorro; })), ahorroPct = prom(R.negs.map(function (n) { return n.pct; }));
@@ -174,6 +205,7 @@ function render() {
     kpi('Vencen en ' + (D.diasAviso || 5) + ' días', R.vencen.length, R.vencen.length ? Object.keys(R.vencen.reduce(function (m, r) { m[r.agente] = 1; return m; }, {})).length + ' agente(s)' : 'Ninguna', R.vencen.length > 0) +
     '</section>';
   h += '<section class="panel"><h2>Cómo estamos con las cotizaciones ' + (S.modo === 'mar' ? 'marítimas' : 'aéreas') + '</h2><p class="sub">Cada agente activo: hasta cuándo tiene tarifa ' + (S.modo === 'mar' ? 'marítima' : 'aérea') + ' (base madre y Tarifador), ' + (S.modo === 'mar' ? 'cuántas rutas tiene vigentes hoy' : 'qué aeropuertos tiene vigentes hoy') + ' y si hay un pedido en curso.</p>' + tablaCobertura() + '</section>';
+  if (S.modo === 'air') h += '<section class="panel"><h2>Mejor opción en cada tramo de peso</h2><p class="sub">Para cada aeropuerto y cada peso de embarque: quién sale más barato y cuánto pagaríamos por kg, todo incluido (tarifa del tramo o mínimo, fuel, IMO y gastos en origen y destino), calculado por BIDCOM con lo que cargó cada agente. Debajo, el segundo. "—": nadie cotizó ese tramo. Pasá el mouse para ver el detalle.</p>' + tablaTramos() + '</section>';
   h += '<section class="panel"><h2>Quién tiene la tarifa más baja ' + (S.modo === 'mar' ? 'por puerto' : 'por aeropuerto') + '</h2><p class="sub">' + unidad() + (S.modo === 'mar' ? ', contenedor ' + ctnrMatriz() + (S.ctnr ? '' : ' (elegí otro arriba, en Contenedor)') : '') + '. La mejor oferta de cada agente en el período. En verde, la más baja de cada columna; en el resto, cuánto está por encima.</p>' + tablaMatriz(R) + '</section>';
   h += '<section class="panel"><h2>Mejor tarifa por ' + (S.modo === 'mar' ? 'ruta y contenedor' : 'ruta') + '</h2><p class="sub">' + unidad() + '. La mejor oferta de cada agente en el período, comparada con la mediana de los 6 meses anteriores.</p>' + tablaMejor(R) + '</section>';
   h += '<div class="grid2"><section class="panel"><h2>Ranking de agentes</h2><p class="sub">Sobre las ' + (S.modo === 'mar' ? 'rutas-contenedor' : 'rutas') + ' del período. "Vs la mejor" es cuánto está, en promedio, por encima de la oferta más baja.</p>' + tablaRanking(R) + '</section>' +
@@ -190,7 +222,7 @@ function ctnrMatriz() { return S.ctnr || '40ST/40HQ'; }
 // Cobertura por agente en el modo elegido
 function tablaCobertura() {
   var h = hoyMs(), lim = h + (Number(D.diasAviso) || 5) * DIA, m = S.modo;
-  var vig = {}; registros().forEach(function (r) { if (r.desde <= h && (isNaN(r.hasta) || r.hasta >= h)) { var k = norm(r.agente); (vig[k] = vig[k] || {})[m === 'air' ? r.origen : rutaDe(r)] = 1; } });
+  var vig = {}; registros(true).forEach(function (r) { if (r.desde <= h && (isNaN(r.hasta) || r.hasta >= h)) { var k = norm(r.agente); (vig[k] = vig[k] || {})[m === 'air' ? r.origen : rutaDe(r)] = 1; } });
   var ped = {}; (D.pedidos || []).forEach(function (p) { if (p.modo === m) { var k = norm(p.agente); if (!ped[k] || p.limite > ped[k]) ped[k] = p.limite; } });
   var totAir = (D.rutasAir || []).length;
   var filas = (D.cob || []).filter(function (a) { return !S.agente || a.n === S.agente; }).map(function (a) {
@@ -230,13 +262,32 @@ function tablaMatriz(R) {
     return '<tr><td>' + esc(a) + '</td>' + grupos.map(function (g) {
       var r = g.lista.filter(function (x) { return x.agente === a; })[0];
       if (!r) return '<td class="vacio2">—</td>';
-      var tip = esc(r.carrier + ' · desde ' + fCorta(r.dDesde) + (r.dHasta ? ' hasta ' + fCorta(r.dHasta) : ''));
+      var tip = esc(r.carrier + ' · desde ' + fCorta(r.dDesde) + (r.dHasta ? ' hasta ' + fCorta(r.dHasta) : '') + (r.det ? ' · ' + detalleTxt(r.det, S.peso) : ''));
       if (r === g.mejor) return '<td class="n best" title="' + tip + '">' + usd(r.precio) + ' <span style="font-weight:600;font-size:11px">· más baja</span></td>';
       return '<td class="n" title="' + tip + '">' + usd(r.precio) + ' <span class="m">' + pct(r.precio / g.mejor.precio - 1, true) + '</span></td>';
     }).join('') + '<td class="n">' + st[a].gan + ' de ' + grupos.length + '</td></tr>';
   }).join('');
   var top = '<tr class="ganador"><td><b>Agente con la más baja</b></td>' + grupos.map(function (g) { return '<td class="n"><b>' + esc(g.mejor.agente) + '</b><br><span class="m">' + esc(g.mejor.carrier) + ' · ' + usd(g.mejor.precio) + '</span></td>'; }).join('') + '<td></td></tr>';
   return '<div class="tw mx"><table><thead>' + head + '</thead><tbody>' + top + body + '</tbody></table></div>';
+}
+// Aéreo: mejor opción por aeropuerto y por peso (45 a 1000 kg)
+function tablaTramos() {
+  var regs = registros(true).filter(function (r) { return r.comp && pasaFiltros(r, true) && enPeriodo(r); });
+  if (S.periodo === 'vig') regs = ultimaCarga(regs);
+  if (!regs.length) return '<div class="vacio">No hay ofertas en este período con estos filtros.</div>';
+  var rutas = {}; regs.forEach(function (r) { (rutas[rutaDe(r)] = rutas[rutaDe(r)] || []).push(r); });
+  var claves = Object.keys(rutas).sort();
+  return '<div class="tw mx"><table><thead><tr><th scope="col">Aeropuerto</th>' + PESOS.map(function (W) { return '<th class="col" scope="col">' + W + ' kg</th>'; }).join('') + '</tr></thead><tbody>' +
+    claves.map(function (k) {
+      return '<tr><td>' + esc(k.split(' → ')[0]) + '</td>' + PESOS.map(function (W) {
+        var mejor = {}; rutas[k].forEach(function (r) { var d = costoKg(r.comp, W); if (!(d.kg > 0)) return; if (!mejor[r.agente] || d.kg < mejor[r.agente].d.kg) mejor[r.agente] = { r: r, d: d }; });
+        var l = Object.keys(mejor).map(function (a) { return mejor[a]; }).sort(function (a, b) { return a.d.kg - b.d.kg; });
+        if (!l.length) return '<td class="vacio2">—</td>';
+        var tip = esc(l[0].r.agente + ' · ' + l[0].r.carrier + ' · ' + detalleTxt(l[0].d, W));
+        return '<td title="' + tip + '"><b>' + esc(l[0].r.agente) + '</b> <span style="color:var(--ok);font-weight:700">USD ' + l[0].d.kg.toLocaleString('es-AR', { minimumFractionDigits: 2 }) + '/kg</span>' +
+          (l[1] ? '<br><span class="m">2.º ' + esc(l[1].r.agente) + ' ' + l[1].d.kg.toLocaleString('es-AR', { minimumFractionDigits: 2 }) + ' (' + pct(l[1].d.kg / l[0].d.kg - 1, true) + ')</span>' : '<br><span class="m">Única oferta</span>') + '</td>';
+      }).join('') + '</tr>';
+    }).join('') + '</tbody></table></div>';
 }
 function kpi(l, v, s, alerta) { return '<div class="kpi' + (alerta ? ' alerta' : '') + '"><div class="l">' + esc(l) + '</div><div class="v">' + esc(v) + '</div><div class="s">' + esc(s) + '</div></div>'; }
 function ordenar(t, filas, porDefecto) {
@@ -327,6 +378,7 @@ $('#periodo').onchange = function () { S.periodo = this.value; render(); };
 $('#ruta').onchange = function () { S.ruta = this.value; S.evo = ''; render(); };
 $('#ctnr').onchange = function () { S.ctnr = this.value; S.evo = ''; render(); };
 $('#agente').onchange = function () { S.agente = this.value; render(); };
+$('#peso').onchange = function () { S.peso = Number(this.value); render(); };
 $('#recargar').onclick = cargar;
 if (window.google && google.script) cargar(); else if (window.DEMO) { D = window.DEMO; opcionesFiltros(); render(); }
 </script>

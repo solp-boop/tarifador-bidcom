@@ -884,7 +884,7 @@ var Tarifador = (function () {
         var precio, extra = '';
         if (aereo) {
           precio = numBase(v('allin'));
-          if (!(precio > 0)) { var base = numBase(v('r100')) || numBase(v('r300')) || numBase(v('r500')); precio = base > 0 ? base + (numBase(v('fuel')) || 0) : NaN; }
+          if (!(precio > 0)) { var base = numBase(v('r500')) || numBase(v('r300')) || numBase(v('r100')) || numBase(v('r1000')) || numBase(v('r45')); precio = base > 0 ? base + (numBase(v('fuel')) || 0) : NaN; }
           extra = numBase(v('destinoUsd'));
         } else {
           var flete = numBase(v('flete'));
@@ -896,7 +896,7 @@ var Tarifador = (function () {
         if (!agente) return;
         filas.push([tipo, agente, String(aereo ? v('origen') : v('pol')).trim(), String(aereo ? v('destino') : v('pod')).trim(),
           String(aereo ? v('aerolinea') : v('linea')).trim(), aereo ? '' : tipoCtnr(v('ctnr')), fecha(desde), hasta instanceof Date ? fecha(hasta) : '',
-          Math.round(precio * 100) / 100, isNaN(extra) ? '' : extra, inicio + i]);
+          Math.round(precio * 100) / 100, isNaN(extra) ? '' : extra, inicio + i].concat(aereo ? [['minimo', 'r45', 'r100', 'r300', 'r500', 'r1000', 'fuel', 'imo', 'origenUsd', 'destinoUsd'].map(function (k) { var n = numBase(v(k)); return isNaN(n) ? '' : n; })] : []));
       });
       return { filas: filas };
     } catch (e) { return { filas: [], error: nombre + ': ' + (e && e.message || e) }; }
