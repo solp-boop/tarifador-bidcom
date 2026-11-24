@@ -19,6 +19,13 @@
   .seg { display:inline-flex; background:var(--sunken); border-radius:8px; padding:3px; }
   .seg button { border:0; background:transparent; padding:6px 14px; border-radius:6px; font:inherit; font-weight:600; color:var(--muted); cursor:pointer; }
   .seg button[aria-pressed="true"] { background:var(--surface); color:var(--accent); box-shadow:0 1px 2px rgba(0,0,0,.12); }
+  .seg.grande { padding:4px; }
+  .seg.grande button { font-size:15px; padding:9px 26px; }
+  .seg.grande button[aria-pressed="true"] { background:var(--accent); color:#fff; }
+  .modo-t { font-size:13px; color:var(--muted); }
+  .mx td.best { background:var(--ok-soft); color:var(--ok); font-weight:700; }
+  .mx td.vacio2 { color:#b8c0c8; text-align:center; }
+  .mx th.col { text-transform:none; letter-spacing:0; font-size:11.5px; white-space:normal; min-width:92px; vertical-align:bottom; }
   label.f { display:flex; gap:6px; align-items:center; color:var(--muted); font-size:12px; }
   select, button.btn { font:inherit; border:1px solid var(--line); background:var(--surface); color:var(--ink); border-radius:6px; padding:5px 8px; }
   button.btn { cursor:pointer; font-weight:600; }
@@ -63,7 +70,7 @@
   <button class="btn" type="button" id="recargar">Actualizar</button>
 </header>
 <div class="filtros">
-  <div class="seg" role="group" aria-label="Transporte"><button type="button" data-modo="mar" aria-pressed="true">Marítimo</button><button type="button" data-modo="air" aria-pressed="false">Aéreo</button></div>
+  <div class="seg grande" role="group" aria-label="Transporte"><button type="button" data-modo="mar" aria-pressed="true">Marítimo</button><button type="button" data-modo="air" aria-pressed="false">Aéreo</button></div>
   <label class="f">Período <select id="periodo"><option value="vig">Vigentes hoy</option><option value="30">Últimos 30 días</option><option value="90">Últimos 90 días</option><option value="365">Últimos 12 meses</option></select></label>
   <label class="f">Ruta <select id="ruta"><option value="">Todas</option></select></label>
   <label class="f" id="fCtnr">Contenedor <select id="ctnr"><option value="">Todos</option><option>20ST</option><option>40ST/40HQ</option><option>40NOR</option></select></label>
@@ -165,6 +172,8 @@ function render() {
     kpi('Ahorro negociado', R.negs.length ? usd(ahorroProm) : '—', R.negs.length ? (S.modo === 'mar' ? 'por contenedor' : 'por kg') + ', ' + pct(ahorroPct, true) + ' en promedio · ' + R.negs.length + ' tarifa(s) mejorada(s)' : 'Sin negociaciones en el período') +
     kpi('Vencen en ' + (D.diasAviso || 5) + ' días', R.vencen.length, R.vencen.length ? Object.keys(R.vencen.reduce(function (m, r) { m[r.agente] = 1; return m; }, {})).length + ' agente(s)' : 'Ninguna', R.vencen.length > 0) +
     '</section>';
+  h += '<section class="panel"><h2>Cómo estamos con las cotizaciones ' + (S.modo === 'mar' ? 'marítimas' : 'aéreas') + '</h2><p class="sub">Cada agente activo: hasta cuándo tiene tarifa ' + (S.modo === 'mar' ? 'marítima' : 'aérea') + ' (base madre y Tarifador), ' + (S.modo === 'mar' ? 'cuántas rutas tiene vigentes hoy' : 'qué aeropuertos tiene vigentes hoy') + ' y si hay un pedido en curso.</p>' + tablaCobertura() + '</section>';
+  h += '<section class="panel"><h2>Quién tiene la tarifa más baja ' + (S.modo === 'mar' ? 'por puerto' : 'por aeropuerto') + '</h2><p class="sub">' + unidad() + (S.modo === 'mar' ? ', contenedor ' + ctnrMatriz() + (S.ctnr ? '' : ' (elegí otro arriba, en Contenedor)') : '') + '. La mejor oferta de cada agente en el período. En verde, la más baja de cada columna; en el resto, cuánto está por encima.</p>' + tablaMatriz(R) + '</section>';
   h += '<section class="panel"><h2>Mejor tarifa por ' + (S.modo === 'mar' ? 'ruta y contenedor' : 'ruta') + '</h2><p class="sub">' + unidad() + '. La mejor oferta de cada agente en el período, comparada con la mediana de los 6 meses anteriores.</p>' + tablaMejor(R) + '</section>';
   h += '<div class="grid2"><section class="panel"><h2>Ranking de agentes</h2><p class="sub">Sobre las ' + (S.modo === 'mar' ? 'rutas-contenedor' : 'rutas') + ' del período. "Vs la mejor" es cuánto está, en promedio, por encima de la oferta más baja.</p>' + tablaRanking(R) + '</section>' +
     '<section class="panel"><h2>Evolución de precios</h2><p class="sub" id="evoSub"></p><label class="f">Ver <select id="evoSel"></select></label><div id="evo"></div></section></div>';
@@ -174,6 +183,59 @@ function render() {
   armarEvolucion(R);
   document.querySelectorAll('[data-ir]').forEach(function (b) { b.onclick = function () { ir(b.getAttribute('data-hoja'), Number(b.getAttribute('data-ir'))); }; });
   document.querySelectorAll('th[data-ord]').forEach(function (th) { th.onclick = function () { var t = th.getAttribute('data-tabla'), c = th.getAttribute('data-ord'); ORD[t] = ORD[t] && ORD[t].c === c ? { c: c, d: -ORD[t].d } : { c: c, d: 1 }; render(); }; });
+}
+function norm(t) { return String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/gi, '').toUpperCase(); }
+function ctnrMatriz() { return S.ctnr || '40ST/40HQ'; }
+// Cobertura por agente en el modo elegido
+function tablaCobertura() {
+  var h = hoyMs(), lim = h + (Number(D.diasAviso) || 5) * DIA, m = S.modo;
+  var vig = {}; registros().forEach(function (r) { if (r.desde <= h && (isNaN(r.hasta) || r.hasta >= h)) { var k = norm(r.agente); (vig[k] = vig[k] || {})[m === 'air' ? r.origen : rutaDe(r)] = 1; } });
+  var ped = {}; (D.pedidos || []).forEach(function (p) { if (p.modo === m) { var k = norm(p.agente); if (!ped[k] || p.limite > ped[k]) ped[k] = p.limite; } });
+  var totAir = (D.rutasAir || []).length;
+  var filas = (D.cob || []).filter(function (a) { return !S.agente || a.n === S.agente; }).map(function (a) {
+    var hasta = a[m], dh = dia(hasta), k = norm(a.n), rutas = Object.keys(vig[k] || {});
+    var est = !hasta ? 0 : dh < h ? 1 : dh <= lim ? 2 : 3;
+    return { n: a.n, hasta: hasta, est: est, rutas: rutas, ped: ped[k] || '' };
+  }).sort(function (x, y) { return x.est - y.est || x.n.localeCompare(y.n); });
+  if (!filas.length) return '<div class="vacio">No hay agentes activos.</div>';
+  var cuenta = [0, 0, 0, 0]; filas.forEach(function (f) { cuenta[f.est]++; });
+  var res = '<p class="sub" style="margin-top:-4px"><span class="chip ok">' + cuenta[3] + ' al día</span> <span class="chip warn">' + cuenta[2] + ' por vencer</span> <span class="chip bad">' + (cuenta[0] + cuenta[1]) + ' sin tarifa vigente</span></p>';
+  return res + '<div class="tw"><table><thead><tr><th scope="col">Agente</th><th scope="col">Estado</th><th scope="col">' + (m === 'air' ? 'Aeropuertos vigentes hoy' : 'Rutas vigentes hoy') + '</th><th scope="col">Pedido en curso</th></tr></thead><tbody>' +
+    filas.map(function (f) {
+      var chip = f.est === 0 ? '<span class="chip bad">Sin tarifa cargada</span>' : f.est === 1 ? '<span class="chip bad">Venció el ' + fCorta(f.hasta) + '</span>' : f.est === 2 ? '<span class="chip warn">Vence el ' + fCorta(f.hasta) + '</span>' : '<span class="chip ok">Vigente hasta ' + fCorta(f.hasta) + '</span>';
+      var rut;
+      if (m === 'air' && totAir) {
+        var falt = D.rutasAir.filter(function (o) { return f.rutas.indexOf(o) < 0; });
+        rut = f.rutas.length + ' de ' + totAir + (falt.length && f.rutas.length ? ' <span class="m">· faltan: ' + esc(falt.join(', ')) + '</span>' : '');
+      } else rut = f.rutas.length ? f.rutas.length + ' ruta(s)' : '<span class="m">—</span>';
+      return '<tr><td>' + esc(f.n) + '</td><td>' + chip + '</td><td>' + rut + '</td><td>' + (f.ped ? 'Sí, límite ' + fCorta(f.ped) : '<span class="m">—</span>') + '</td></tr>';
+    }).join('') + '</tbody></table></div>';
+}
+// Matriz agente × aeropuerto (o puerto): mejor oferta de cada agente en el período
+function tablaMatriz(R) {
+  var c = ctnrMatriz(), grupos = R.filasMejor.filter(function (f) { return S.modo === 'air' || f.ctnr === c; });
+  if (!grupos.length) return '<div class="vacio">No hay ofertas en este período con estos filtros.</div>';
+  var destinos = {}; grupos.forEach(function (g) { destinos[g.ruta.split(' → ')[1]] = 1; });
+  var variosDest = Object.keys(destinos).length > 1;
+  grupos.sort(function (a, b) { return a.ruta.localeCompare(b.ruta); });
+  var ags = {}; grupos.forEach(function (g) { g.lista.forEach(function (r) { ags[r.agente] = 1; }); });
+  var lista = Object.keys(ags).filter(function (a) { return !S.agente || a === S.agente; });
+  // Orden: más veces la más baja, después por promedio vs la mejor
+  var st = {}; lista.forEach(function (a) { st[a] = { gan: 0, vs: [] }; });
+  grupos.forEach(function (g) { g.lista.forEach(function (r) { if (!st[r.agente]) return; if (r === g.mejor) st[r.agente].gan++; st[r.agente].vs.push(r.precio / g.mejor.precio - 1); }); });
+  lista.sort(function (a, b) { return st[b].gan - st[a].gan || prom(st[a].vs) - prom(st[b].vs); });
+  var head = '<tr><th scope="col">Agente</th>' + grupos.map(function (g) { var p = g.ruta.split(' → '); return '<th class="col n" scope="col">' + esc(p[0]) + (variosDest ? '<br><span class="m">→ ' + esc(p[1]) + '</span>' : '') + '</th>'; }).join('') + '<th class="n" scope="col">Más baja en</th></tr>';
+  var body = lista.map(function (a) {
+    return '<tr><td>' + esc(a) + '</td>' + grupos.map(function (g) {
+      var r = g.lista.filter(function (x) { return x.agente === a; })[0];
+      if (!r) return '<td class="vacio2">—</td>';
+      var tip = esc(r.carrier + ' · desde ' + fCorta(r.dDesde) + (r.dHasta ? ' hasta ' + fCorta(r.dHasta) : ''));
+      if (r === g.mejor) return '<td class="n best" title="' + tip + '">' + usd(r.precio) + '</td>';
+      return '<td class="n" title="' + tip + '">' + usd(r.precio) + ' <span class="m">' + pct(r.precio / g.mejor.precio - 1, true) + '</span></td>';
+    }).join('') + '<td class="n">' + st[a].gan + ' de ' + grupos.length + '</td></tr>';
+  }).join('');
+  var pie = '<tr><td><b>Más baja</b></td>' + grupos.map(function (g) { return '<td class="n"><b>' + esc(g.mejor.agente) + '</b><br><span class="m">' + esc(g.mejor.carrier) + '</span></td>'; }).join('') + '<td></td></tr>';
+  return '<div class="tw mx"><table><thead>' + head + '</thead><tbody>' + body + pie + '</tbody></table></div>';
 }
 function kpi(l, v, s, alerta) { return '<div class="kpi' + (alerta ? ' alerta' : '') + '"><div class="l">' + esc(l) + '</div><div class="v">' + esc(v) + '</div><div class="s">' + esc(s) + '</div></div>'; }
 function ordenar(t, filas, porDefecto) {

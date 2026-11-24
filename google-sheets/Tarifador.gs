@@ -928,9 +928,18 @@ var Tarifador = (function () {
           numBase(x[K.vsMenor]), String(x[K.semaforo] || ''), String(x[K.estado]), String(x[K.tipo] || ''), String(x[K.decision] || '')]);
       });
     } catch (e) { errores.push(String(e && e.message || e)); }
+    // Cobertura por agente y modo: hasta cuándo tiene tarifa (base madre + Tarifador) y pedidos en curso
+    var cob = {}, anotar = function (ag, m, hasta) { var k = claveTexto(ag); if (!k || !hasta) return; var c = cob[k] = cob[k] || {}; if (!c[m] || hasta > c[m]) c[m] = hasta; };
+    mar.forEach(function (f) { anotar(f[1], 'mar', f[7]); }); air.forEach(function (f) { anotar(f[1], 'air', f[7]); });
+    try { valoresCotiz(hojaCotiz()).forEach(function (x) { if (x[K.vigente] === 'SI' && x[K.hasta] instanceof Date) anotar(x[K.ffww], x[K.modo] === MODO.AIR ? 'air' : 'mar', fecha(x[K.hasta])); }); } catch (e) { }
+    var activos = cfg.agentes.filter(function (a) { return a.activo && !/PRUEBA/i.test(a.codigo); });
+    var pedidos = leerPedidos().filter(function (p) { return !p.cerrado && !p.respondio; }).map(function (p) {
+      return { agente: p.agente, modo: p.modo === MODO.AIR ? 'air' : 'mar', limite: p.limite ? fecha(new Date(p.limite)) : '', origen: p.origen || '' }; });
     return {
       hoy: fecha(hoy), mar: mar, air: air, pend: pend, estados: estados, errores: errores,
-      agentes: cfg.agentes.filter(function (a) { return a.activo; }).map(function (a) { return a.nombre; }),
+      agentes: activos.map(function (a) { return a.nombre; }),
+      cob: activos.map(function (a) { var c = cob[claveTexto(a.nombre)] || {}; return { n: a.nombre, mar: c.mar || '', air: c.air || '' }; }),
+      pedidos: pedidos, rutasAir: (cfg.rutasAir || []).map(function (r) { return r.origen; }),
       hojas: { marIni: cfg.marIni, marNeg: cfg.marNeg, airIni: cfg.airIni, airNeg: cfg.airNeg, cotiz: HOJA.COTIZ }, diasAviso: cfg.diasAviso
     };
   }
