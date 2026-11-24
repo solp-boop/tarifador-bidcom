@@ -24,6 +24,7 @@
   .seg.grande button[aria-pressed="true"] { background:var(--accent); color:#fff; }
   .modo-t { font-size:13px; color:var(--muted); }
   .mx td.best { background:var(--ok-soft); color:var(--ok); font-weight:700; }
+  .mx tr.ganador td { background:#f3f8fb; border-bottom:2px solid var(--accent); }
   .mx td.vacio2 { color:#b8c0c8; text-align:center; }
   .mx th.col { text-transform:none; letter-spacing:0; font-size:11.5px; white-space:normal; min-width:92px; vertical-align:bottom; }
   label.f { display:flex; gap:6px; align-items:center; color:var(--muted); font-size:12px; }
@@ -230,12 +231,12 @@ function tablaMatriz(R) {
       var r = g.lista.filter(function (x) { return x.agente === a; })[0];
       if (!r) return '<td class="vacio2">—</td>';
       var tip = esc(r.carrier + ' · desde ' + fCorta(r.dDesde) + (r.dHasta ? ' hasta ' + fCorta(r.dHasta) : ''));
-      if (r === g.mejor) return '<td class="n best" title="' + tip + '">' + usd(r.precio) + '</td>';
+      if (r === g.mejor) return '<td class="n best" title="' + tip + '">' + usd(r.precio) + ' <span style="font-weight:600;font-size:11px">· más baja</span></td>';
       return '<td class="n" title="' + tip + '">' + usd(r.precio) + ' <span class="m">' + pct(r.precio / g.mejor.precio - 1, true) + '</span></td>';
     }).join('') + '<td class="n">' + st[a].gan + ' de ' + grupos.length + '</td></tr>';
   }).join('');
-  var pie = '<tr><td><b>Más baja</b></td>' + grupos.map(function (g) { return '<td class="n"><b>' + esc(g.mejor.agente) + '</b><br><span class="m">' + esc(g.mejor.carrier) + '</span></td>'; }).join('') + '<td></td></tr>';
-  return '<div class="tw mx"><table><thead>' + head + '</thead><tbody>' + body + pie + '</tbody></table></div>';
+  var top = '<tr class="ganador"><td><b>Agente con la más baja</b></td>' + grupos.map(function (g) { return '<td class="n"><b>' + esc(g.mejor.agente) + '</b><br><span class="m">' + esc(g.mejor.carrier) + ' · ' + usd(g.mejor.precio) + '</span></td>'; }).join('') + '<td></td></tr>';
+  return '<div class="tw mx"><table><thead>' + head + '</thead><tbody>' + top + body + '</tbody></table></div>';
 }
 function kpi(l, v, s, alerta) { return '<div class="kpi' + (alerta ? ' alerta' : '') + '"><div class="l">' + esc(l) + '</div><div class="v">' + esc(v) + '</div><div class="s">' + esc(s) + '</div></div>'; }
 function ordenar(t, filas, porDefecto) {
